@@ -7,7 +7,9 @@ import { startHealthCheck } from './healthCheck';
 console.log("🚀 Frontrun Bot is running!");
 
 // Démarrer le health check pour Railway
+console.log("🏥 Starting health check server...");
 startHealthCheck();
+console.log("✅ Health check server started successfully");
 
 // Initialisation du trader
 let traderInitialized = false;

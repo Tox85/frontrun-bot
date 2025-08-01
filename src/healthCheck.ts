@@ -22,7 +22,15 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 });
 
 export function startHealthCheck() {
-  server.listen(PORT, () => {
-    console.log(`🏥 Health check server running on port ${PORT}`);
-  });
+  try {
+    server.listen(PORT, () => {
+      console.log(`🏥 Health check server running on port ${PORT}`);
+    });
+    
+    server.on('error', (error) => {
+      console.error('❌ Health check server error:', error);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start health check server:', error);
+  }
 } 
