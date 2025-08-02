@@ -1,28 +1,25 @@
+import { startHealthCheck } from './healthCheck';
 import { AlternativeListingSource } from "./alternativeListingSource";
 import { executeTrade, initializeTrader, checkBalance } from "./trader";
 import { hasPerpOnBybit, hasPerpOnHyperliquid } from "./exchangeChecker";
 import { TelegramService } from "./telegramService";
-import { startHealthCheck } from './healthCheck';
 
-console.log("🚀 Frontrun Bot is running!");
+console.log("🚀 Frontrun Bot Server is starting...");
 
-// Démarrer le health check pour Railway
-console.log("🏥 Starting health check server...");
-try {
-  startHealthCheck();
-  console.log("✅ Health check server started successfully");
-} catch (error) {
-  console.error("❌ Failed to start health check server:", error);
-  // Continuer même si le health check échoue
-}
+// Démarrer IMMÉDIATEMENT le health check pour Railway
+console.log("🏥 Starting health check server immediately...");
+startHealthCheck();
+console.log("✅ Health check server started successfully");
 
-// Initialisation du trader
+// Variables pour le bot
 let traderInitialized = false;
 let listingSource: AlternativeListingSource | null = null;
 let telegramService: TelegramService | null = null;
 
 async function startBot() {
   try {
+    console.log("🤖 Initializing bot components...");
+    
     // Initialiser le service Telegram
     telegramService = new TelegramService();
     await telegramService.sendBotStatus("Démarrage", "Initialisation du bot...");
@@ -37,7 +34,7 @@ async function startBot() {
     if (!traderInitialized) {
       await telegramService.sendError("Impossible d'initialiser le trader", "Arrêt du bot");
       console.error("❌ Impossible d'initialiser le trader, arrêt du bot");
-      process.exit(1);
+      return; // Ne pas arrêter le serveur, juste le bot
     }
 
     await telegramService.sendBotStatus("Trader initialisé", "Bybit configuré avec succès");
@@ -91,46 +88,48 @@ async function startBot() {
     // Notification de démarrage réussi
     await telegramService.sendBotStatus("Bot opérationnel", "Surveillance active - prêt à détecter les nouveaux listings");
 
-    // Gestion des signaux d'arrêt
-    const gracefulShutdown = async (signal: string) => {
-      console.log(`\n🛑 Arrêt du bot (${signal})...`);
-      try {
-        await telegramService?.sendBotStatus("Arrêt", `Bot arrêté (${signal})`);
-        if (listingSource) {
-          listingSource.stopListening();
-        }
-        console.log('✅ Arrêt propre terminé');
-        process.exit(0);
-      } catch (error) {
-        console.error('❌ Erreur lors de l\'arrêt:', error);
-        process.exit(1);
-      }
-    };
-
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-    // Gestion des erreurs non capturées
-    process.on('uncaughtException', async (error) => {
-      console.error('❌ Erreur non capturée:', error);
-      await telegramService?.sendError('Erreur fatale', error.message);
-      process.exit(1);
-    });
-
-    process.on('unhandledRejection', async (reason, promise) => {
-      console.error('❌ Promesse rejetée non gérée:', reason);
-      await telegramService?.sendError('Promesse rejetée', String(reason));
-      process.exit(1);
-    });
-
   } catch (error) {
     console.error('❌ Erreur lors du démarrage du bot:', error);
     await telegramService?.sendError('Erreur de démarrage', error instanceof Error ? error.message : 'Erreur inconnue');
-    process.exit(1);
+    // Ne pas arrêter le serveur, juste notifier l'erreur
   }
 }
 
-// Démarrer le bot avec un délai pour laisser le health check se stabiliser
+// Démarrer le bot en arrière-plan après un court délai
 setTimeout(() => {
   startBot();
-}, 2000);
+}, 1000);
+
+// Gestion des signaux d'arrêt
+const gracefulShutdown = async (signal: string) => {
+  console.log(`\n🛑 Arrêt du serveur (${signal})...`);
+  try {
+    await telegramService?.sendBotStatus("Arrêt", `Serveur arrêté (${signal})`);
+    if (listingSource) {
+      listingSource.stopListening();
+    }
+    console.log('✅ Arrêt propre terminé');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'arrêt:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Gestion des erreurs non capturées
+process.on('uncaughtException', async (error) => {
+  console.error('❌ Erreur non capturée:', error);
+  await telegramService?.sendError('Erreur fatale', error.message);
+  // Ne pas arrêter le serveur pour les erreurs non critiques
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('❌ Promesse rejetée non gérée:', reason);
+  await telegramService?.sendError('Promesse rejetée', String(reason));
+  // Ne pas arrêter le serveur pour les erreurs non critiques
+});
+
+console.log("✅ Server startup complete - health check is ready!"); 

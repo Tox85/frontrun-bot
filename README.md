@@ -1,35 +1,78 @@
 # Frontrun Bot
 
-Bot de trading automatique pour Bybit.
+Bot de trading automatisé pour détecter et trader les nouveaux listings sur les exchanges.
 
-## Déploiement sur Railway
+## 🚀 Déploiement sur Railway
 
-### Prérequis
-1. Compte GitHub avec votre code
-2. Compte Railway (https://railway.app)
+### Configuration requise
 
-### Variables d'environnement requises
+- Node.js 18+ 
+- Variables d'environnement configurées dans Railway
 
-Copiez le contenu de `env.example` et configurez vos variables :
+### Variables d'environnement
 
-- `BYBIT_API_KEY` : Votre clé API Bybit
-- `BYBIT_SECRET` : Votre secret Bybit  
-- `IS_DEMO` : `true` pour le mode demo, `false` pour le mode réel
-- `TRADE_AMOUNT_USDT` : Montant par trade en USDT
-- `LEVERAGE` : Levier utilisé
-- `STOP_LOSS_PERCENT` : Pourcentage de stop loss
+Assurez-vous de configurer les variables suivantes dans votre projet Railway :
+
+```env
+# Configuration Bybit
+BYBIT_API_KEY=your_bybit_api_key
+BYBIT_SECRET=your_bybit_secret
+
+# Configuration Telegram
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+
+# Configuration de l'application
+NODE_ENV=production
+PORT=3000
+```
+
+### Health Check
+
+L'application expose plusieurs endpoints de health check :
+
+- `/health` - État général de l'application
+- `/ready` - Vérification si l'application est prête
+- `/` - Endpoint principal (redirige vers /health)
 
 ### Déploiement
 
-1. Connectez votre compte GitHub à Railway
-2. Créez un nouveau projet sur Railway
-3. Sélectionnez votre repository GitHub
-4. Configurez les variables d'environnement dans l'onglet "Variables"
-5. Déployez !
+1. Connectez votre repository GitHub à Railway
+2. Configurez les variables d'environnement
+3. Le déploiement se fait automatiquement
 
-## Développement local
+### Logs et monitoring
+
+- Les logs sont disponibles dans l'interface Railway
+- Le bot envoie des notifications Telegram pour les événements importants
+- Le health check surveille l'état de l'application
+
+## 🛠️ Développement local
 
 ```bash
+# Installation des dépendances
 npm install
+
+# Démarrage en mode développement
 npm run dev
-``` 
+
+# Build pour la production
+npm run build
+
+# Démarrage en production
+npm start
+```
+
+## 📊 Endpoints disponibles
+
+- `GET /health` - État de santé de l'application
+- `GET /ready` - Vérification de disponibilité
+- `GET /` - Page d'accueil
+
+## 🔧 Configuration Railway
+
+Le fichier `railway.json` configure :
+- Health check sur `/health`
+- Timeout de 300 secondes
+- Redémarrage automatique en cas d'échec
+- Maximum 10 tentatives de redémarrage 

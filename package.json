@@ -6,9 +6,10 @@
   "type": "commonjs",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "ts-node src/main.ts",
-    "postinstall": "npm run build"
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "postinstall": "npm run build",
+    "health-check": "curl -f http://localhost:$PORT/health || exit 1"
   },
   "keywords": [],
   "author": "",
@@ -27,5 +28,9 @@
     "@types/node": "^24.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   }
 }
