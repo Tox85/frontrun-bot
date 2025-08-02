@@ -9,4 +9,5 @@ export interface ListingMetadata {
   title?: string;
   url?: string;
   timestamp?: number;
+  source?: string;
 } 

@@ -46,7 +46,7 @@ export async function checkBalance(): Promise<{ available: number; total: number
   }
 }
 
-export async function executeTrade(symbol: string, platform: 'Bybit' | 'Hyperliquid'): Promise<void> {
+export async function executeTrade(symbol: string, platform: 'Bybit'): Promise<void> {
   if (!bybitTrader) {
     console.error('❌ Trader non initialisé');
     return;
@@ -55,23 +55,15 @@ export async function executeTrade(symbol: string, platform: 'Bybit' | 'Hyperliq
   try {
     console.log(`💥 Exécution du trade sur ${symbol} via ${platform}...`);
     
-    if (platform === 'Bybit') {
-      const result = await bybitTrader.openPosition(symbol);
-      
-      if (result.success) {
-        console.log(`✅ Trade exécuté avec succès sur Bybit !`);
-        console.log(`📊 Order ID: ${result.orderId}`);
-        await telegramService?.sendTradeExecution(symbol, 'Bybit', true, `Order ID: ${result.orderId}`);
-      } else {
-        console.error(`❌ Échec du trade sur Bybit: ${result.error}`);
-        await telegramService?.sendTradeExecution(symbol, 'Bybit', false, result.error);
-      }
+    const result = await bybitTrader.openPosition(symbol);
+    
+    if (result.success) {
+      console.log(`✅ Trade exécuté avec succès sur Bybit !`);
+      console.log(`📊 Order ID: ${result.orderId}`);
+      await telegramService?.sendTradeExecution(symbol, 'Bybit', true, `Order ID: ${result.orderId}`);
     } else {
-      console.log(`⚠️ Trading Hyperliquid non encore implémenté, simulation...`);
-      // TODO: Implémenter le trading Hyperliquid
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log(`✅ Trade simulé pour ${symbol} sur Hyperliquid`);
-      await telegramService?.sendTradeExecution(symbol, 'Hyperliquid', true, 'Simulation - non implémenté');
+      console.error(`❌ Échec du trade sur Bybit: ${result.error}`);
+      await telegramService?.sendTradeExecution(symbol, 'Bybit', false, result.error);
     }
     
   } catch (error) {

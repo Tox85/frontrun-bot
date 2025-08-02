@@ -10,6 +10,7 @@ export const BYBIT_CONFIG = {
   secret: process.env.BYBIT_SECRET || '',
   isDemo: process.env.IS_DEMO === 'true',
   sandbox: process.env.IS_DEMO === 'true', // Pour CCXT
+  testnet: process.env.IS_DEMO === 'true', // Pour Bybit testnet
 };
 
 // Configuration Telegram
@@ -58,6 +59,7 @@ export function validateConfig() {
   console.log(`  - API Key: ${BYBIT_CONFIG.apiKey ? BYBIT_CONFIG.apiKey.substring(0, 8) + '...' : 'MANQUANT'}`);
   console.log(`  - Secret: ${BYBIT_CONFIG.secret ? '***' + BYBIT_CONFIG.secret.substring(-4) : 'MANQUANT'}`);
   console.log(`  - Sandbox: ${BYBIT_CONFIG.sandbox}`);
+  console.log(`  - Testnet: ${BYBIT_CONFIG.testnet}`);
   console.log(`  - Montant par trade: ${TRADING_CONFIG.tradeAmountUsdt} USDT`);
   console.log(`  - Levier: ${TRADING_CONFIG.leverage}x`);
   console.log(`  - Stop Loss: ${TRADING_CONFIG.stopLossPercent}%`);

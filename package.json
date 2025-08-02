@@ -1,25 +1,27 @@
 {
   "name": "frontrun-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Bot de frontrunning pour les listings coréens",
+  "main": "dist/main.js",
   "type": "commonjs",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
     "postinstall": "npm run build",
     "health-check": "curl -f http://localhost:$PORT/health || exit 1"
   },
-  "keywords": [],
+  "keywords": ["crypto", "trading", "bot", "frontrunning", "korean-listings"],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/ws": "^8.18.1",
     "axios": "^1.11.0",
     "ccxt": "^4.4.96",
     "cheerio": "^1.1.2",
     "dotenv": "^17.2.1",
-    "puppeteer": "^24.15.0"
+    "puppeteer": "^24.15.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",

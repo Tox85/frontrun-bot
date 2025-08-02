@@ -2,16 +2,26 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { ListingSource, ListingMetadata } from './listingSource';
+import { BithumbWebSocket } from './bithumbWebSocket';
 
 export class AlternativeListingSource implements ListingSource {
   private intervalId: NodeJS.Timeout | null = null;
   private knownTokens: Set<string>;
   private knownTokensPath: string;
-  private lastCheck: number = 0;
+  private bithumbWebSocket: BithumbWebSocket;
+  private userAgentIndex: number = 0;
+
+  private readonly userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  ];
 
   constructor() {
     this.knownTokensPath = path.resolve(__dirname, "../knownTokens.json");
     this.knownTokens = this.loadKnownTokens();
+    this.bithumbWebSocket = new BithumbWebSocket();
   }
 
   private loadKnownTokens(): Set<string> {
@@ -37,40 +47,28 @@ export class AlternativeListingSource implements ListingSource {
       console.log(`✅ Fichier sauvegardé avec succès`);
     } catch (error) {
       console.warn(`⚠️ Erreur sauvegarde (ignorée): ${error}`);
-      // Ne pas faire échouer le bot pour une erreur de sauvegarde
     }
   }
 
   private async fetchBithumbTickers(): Promise<string[]> {
-    try {
-      // Utiliser l'API publique Bithumb qui est accessible
-      const response = await axios.get("https://api.bithumb.com/public/ticker/ALL_KRW", {
-        timeout: 5000, // Timeout augmenté à 5 secondes
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-
-      if (!response.data || !response.data.data) {
-        throw new Error("Données API invalides");
-      }
-
-      const tokens = Object.keys(response.data.data).filter(token => token !== "date");
-      console.log(`📊 Nombre de tokens Bithumb : ${tokens.length}`);
-      return tokens;
-    } catch (error) {
-      console.error("❌ Erreur fetch Bithumb API :", error);
+    // WebSocket Bithumb gère automatiquement la détection des nouveaux listings
+    // Cette méthode n'est plus nécessaire car le WebSocket fait le travail en temps réel
       return [];
-    }
   }
 
   private async fetchUpbitTickers(): Promise<string[]> {
     try {
-      // API Upbit comme alternative
+      console.log("🔍 Récupération des tokens via API Upbit.");
       const response = await axios.get("https://api.upbit.com/v1/market/all", {
-        timeout: 5000, // Timeout augmenté à 5 secondes
+        timeout: 10000,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
         }
       });
 
@@ -81,71 +79,114 @@ export class AlternativeListingSource implements ListingSource {
       );
 
       const tokens = markets.map((market: any) => market.market.replace('KRW-', ''));
-      console.log(`📊 Nombre de tokens Upbit : ${tokens.length}`);
+      console.log(`🇰🇷 Nombre de tokens Upbit : ${tokens.length}`);
       return tokens;
     } catch (error) {
       console.error("❌ Erreur fetch Upbit API :", error);
+      
+      // Essayer un endpoint alternatif Upbit
+      try {
+        console.log("🔄 Tentative endpoint alternatif Upbit...");
+        const response = await axios.get("https://api.upbit.com/v1/ticker?markets=KRW-BTC", {
+          timeout: 8000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; UpbitBot/1.0)',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (response.data && Array.isArray(response.data)) {
+          console.log(`🇰🇷 Test endpoint alternatif Upbit réussi`);
+          return ['BTC']; // Retourner au moins BTC pour confirmer que l'API fonctionne
+        }
+      } catch (fallbackError) {
+        console.error("❌ Échec endpoint alternatif Upbit :", fallbackError);
+      }
+      
       return [];
     }
   }
 
   startListening(callback: (symbol: string, metadata?: ListingMetadata) => void): void {
-    console.log("🔄 Démarrage de la surveillance alternative (Bithumb + Upbit)...");
+    console.log("🔄 Démarrage de la surveillance (Bithumb WebSocket + Upbit REST)...");
     console.log(`🔢 Tokens déjà connus : ${this.knownTokens.size}`);
     
+    // Démarrer le WebSocket Bithumb pour la détection en temps réel
+    this.bithumbWebSocket.startListening((symbol: string, metadata?: any) => {
+      // Callback pour les nouveaux listings Bithumb détectés via WebSocket
+      if (!this.knownTokens.has(symbol)) {
+        this.knownTokens.add(symbol);
+        
+        const listingMetadata: ListingMetadata = {
+          title: `🆕 NOUVEAU LISTING BITHUMB : ${symbol}`,
+          url: `https://bithumb.com/trade/${symbol}_KRW`,
+          source: 'Bithumb WebSocket',
+          timestamp: Date.now()
+        };
+        
+        console.log(`🆕 NOUVEAU LISTING BITHUMB (WebSocket): ${symbol}`);
+        callback(symbol, listingMetadata);
+        this.saveKnownTokens();
+      }
+    });
+    
+    // Synchroniser les tokens Bithumb avec knownTokens.json après un délai
+    setTimeout(() => {
+      const bithumbTokens = this.bithumbWebSocket.getKnownSymbols();
+      console.log(`🔄 Synchronisation Bithumb: ${bithumbTokens.length} tokens détectés`);
+      
+      // Ajouter tous les tokens Bithumb connus à knownTokens.json
+      let addedCount = 0;
+      bithumbTokens.forEach(token => {
+        if (!this.knownTokens.has(token)) {
+          this.knownTokens.add(token);
+          addedCount++;
+        }
+      });
+      
+      if (addedCount > 0) {
+        console.log(`📊 ${addedCount} tokens Bithumb ajoutés à knownTokens.json`);
+        this.saveKnownTokens();
+      }
+      
+      console.log(`📊 État final: Upbit ${this.knownTokens.size - bithumbTokens.length} tokens, Bithumb ${bithumbTokens.length} tokens`);
+    }, 5000);
+    
+    // Polling Upbit toutes les 2 secondes
     this.intervalId = setInterval(async () => {
       try {
-        console.log("🔍 Vérification des nouveaux listings...");
+        console.log("🔄 Vérification des nouveaux listings Upbit...");
         
-        // Récupérer les tokens des deux sources en parallèle avec gestion d'erreurs
-        const [bithumbResult, upbitResult] = await Promise.allSettled([
-          this.fetchBithumbTickers(),
-          this.fetchUpbitTickers()
-        ]);
-
-        // Traiter les résultats avec gestion d'erreurs
-        const bithumbTokens = bithumbResult.status === 'fulfilled' ? bithumbResult.value : [];
-        const upbitTokens = upbitResult.status === 'fulfilled' ? upbitResult.value : [];
-
-        // Combiner et dédupliquer
-        const allTokens = [...new Set([...bithumbTokens, ...upbitTokens])];
-        const newTokens = allTokens.filter(token => !this.knownTokens.has(token));
-
-        // Logs optimisés pour éviter le spam
-        if (newTokens.length > 0) {
-          console.log(`📊 Bithumb: ${bithumbTokens.length}, Upbit: ${upbitTokens.length}, Nouveaux: ${newTokens.length}`);
-          for (const token of newTokens) {
-            console.log(`➕ ${token}`);
-          }
-        } else {
-          // Log très peu fréquent pour éviter le spam avec 2s
-          if (Math.random() < 0.05) { // 5% de chance de logger
-            console.log("⏳ Surveillance active...");
-          }
-        }
+        const upbitTokens = await this.fetchUpbitTickers();
+        const newTokens = upbitTokens.filter(token => !this.knownTokens.has(token));
 
         if (newTokens.length > 0) {
-          console.log("🆕 NOUVEAUX TOKENS DÉTECTÉS :", newTokens);
+          console.log(`📊 Upbit: ${upbitTokens.length}, Nouveaux: ${newTokens.length}`);
 
           for (const token of newTokens) {
+            this.knownTokens.add(token);
+            
             const metadata: ListingMetadata = {
-              title: `Nouveau token détecté via API alternative`,
-              url: `https://api.bithumb.com/public/ticker/${token}_KRW`,
+              title: `🆕 NOUVEAU LISTING UPBIT : ${token}`,
+              url: `https://upbit.com/exchange?code=CRIX.UPBIT.KRW-${token}`,
+              source: 'Upbit REST',
               timestamp: Date.now()
             };
 
+            console.log(`🆕 NOUVEAU LISTING UPBIT: ${token}`);
             callback(token, metadata);
-            this.knownTokens.add(token);
           }
           
-          // Sauvegarder seulement quand il y a de nouveaux tokens
           this.saveKnownTokens();
+        } else {
+          // Log très peu fréquent pour éviter le spam
+          if (Math.random() < 0.05) { // 5% de chance de logger
+            console.log("⏳ Surveillance active... (Upbit: " + upbitTokens.length + ", Bithumb WebSocket: " + this.bithumbWebSocket.getKnownSymbolsCount() + ")");
+          }
         }
 
-        this.lastCheck = Date.now();
-
       } catch (error) {
-        console.error('❌ Erreur lors de la vérification :', error);
+        console.error('❌ Erreur lors de la vérification Upbit :', error);
         
         // Si erreur de rate limiting, attendre un peu plus
         if (error instanceof Error && (error.message?.includes('429') || error.message?.includes('rate limit'))) {
@@ -159,14 +200,15 @@ export class AlternativeListingSource implements ListingSource {
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
-    }, 2000); // Vérification toutes les 2 secondes (ultra-rapide avec sécurité)
+    }, 2000); // Vérification Upbit toutes les 2 secondes
   }
 
   stopListening(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      console.log("🛑 Surveillance alternative arrêtée.");
     }
+    this.bithumbWebSocket.stopListening();
+    console.log("🛑 Surveillance arrêtée.");
   }
 } 

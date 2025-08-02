@@ -46,7 +46,6 @@ export async function hasPerpOnBybit(symbol: string): Promise<boolean> {
     return false;
   }
 }
-
 export async function hasPerpOnHyperliquid(symbol: string): Promise<boolean> {
   try {
     const exchange = new ccxt.hyperliquid();
@@ -71,3 +70,4 @@ export async function hasPerpOnHyperliquid(symbol: string): Promise<boolean> {
     return false;
   }
 }
+
