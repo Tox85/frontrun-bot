@@ -101,8 +101,10 @@ async function startBot() {
 
     // Initialiser le WebSocket Hyperliquid seulement si configuré
     if (traderInitialized) {
-      hyperliquidWebSocket = new HyperliquidWebSocket();
-      await hyperliquidWebSocket.startListening(handleNewListing);
+      // Temporairement désactivé - problème de stabilité WebSocket
+      console.log('⚠️ WebSocket Hyperliquid temporairement désactivé (problème de stabilité)');
+      // hyperliquidWebSocket = new HyperliquidWebSocket();
+      // await hyperliquidWebSocket.startListening(handleNewListing);
     }
 
     // Démarrer la surveillance des articles Bithumb (désactivé temporairement)
@@ -254,9 +256,10 @@ const gracefulShutdown = async (signal: string) => {
     if (listingSource) {
       listingSource.stopListening();
     }
-    if (hyperliquidWebSocket) {
-      hyperliquidWebSocket.stopListening();
-    }
+    // Temporairement désactivé - WebSocket Hyperliquid désactivé
+    // if (hyperliquidWebSocket && typeof hyperliquidWebSocket.stopListening === 'function') {
+    //   hyperliquidWebSocket.stopListening();
+    // }
     if (articleScraper) {
       await articleScraper.stopMonitoring();
     }

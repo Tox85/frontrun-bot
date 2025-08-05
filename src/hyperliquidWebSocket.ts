@@ -87,7 +87,12 @@ export class HyperliquidWebSocket {
     try {
       console.log(`🔌 Connexion WebSocket Hyperliquid: ${HYPERLIQUID_CONFIG.wsUrl}`);
       
-      this.ws = new WebSocket(HYPERLIQUID_CONFIG.wsUrl);
+      this.ws = new WebSocket(HYPERLIQUID_CONFIG.wsUrl, {
+        // Options pour améliorer la stabilité
+        handshakeTimeout: 10000,
+        perMessageDeflate: false,
+        maxPayload: 100 * 1024 * 1024, // 100MB
+      });
 
       this.ws.on('open', () => {
         console.log('✅ WebSocket Hyperliquid connecté');
@@ -101,15 +106,47 @@ export class HyperliquidWebSocket {
         this.handleMessage(data);
       });
 
-      this.ws.on('close', () => {
-        console.log('❌ WebSocket Hyperliquid déconnecté');
+      this.ws.on('close', (code: number, reason: Buffer) => {
+        console.log(`❌ WebSocket Hyperliquid déconnecté (code: ${code}, raison: ${reason.toString()})`);
         this.isConnectedFlag = false;
         this.stopPing();
+        
+        // Reconnexion automatique seulement si ce n'est pas un arrêt volontaire
+        // Code 1000 = fermeture normale, 1001 = fermeture par le serveur
+        if (code !== 1000 && code !== 1001) {
+          this.handleReconnect();
+        } else {
+          console.log('ℹ️ Déconnexion normale - pas de reconnexion automatique');
+          // Redémarrer après un délai plus long pour les déconnexions normales
+          setTimeout(() => {
+            console.log('🔄 Redémarrage de la surveillance Hyperliquid...');
+            this.reconnectAttempts = 0;
+            this.connect();
+          }, 60000); // 1 minute
+        }
+      });
+
+      this.ws.on('error', (error: Error) => {
+        console.error('❌ Erreur WebSocket Hyperliquid:', error.message);
+        this.isConnectedFlag = false;
+        this.stopPing();
+        
+        // Reconnexion automatique en cas d'erreur
         this.handleReconnect();
       });
 
-      this.ws.on('error', (error) => {
-        console.error('❌ Erreur WebSocket Hyperliquid:', error);
+      this.ws.on('ping', () => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.pong();
+        }
+      });
+
+      this.ws.on('pong', () => {
+        // Réception d'un pong - connexion active
+        if (Date.now() - this.lastLogTime > 60000) { // Log toutes les minutes
+          console.log('💓 WebSocket Hyperliquid - connexion active');
+          this.lastLogTime = Date.now();
+        }
       });
 
     } catch (error) {
@@ -121,42 +158,60 @@ export class HyperliquidWebSocket {
   private subscribeToMarkets(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    // Abonnement aux données de marché
+    // Abonnement selon l'API Hyperliquid réelle
     const subscribeMessage = {
+      id: 1,
       method: 'subscribe',
       params: {
-        channels: ['marketData', 'trades', 'orderbook']
+        channels: ['trades', 'orderbook', 'ticker']
       }
     };
 
-    this.ws.send(JSON.stringify(subscribeMessage));
-    console.log('📡 Abonnement aux marchés Hyperliquid activé');
+    try {
+      this.ws.send(JSON.stringify(subscribeMessage));
+      console.log('📡 Abonnement aux marchés Hyperliquid activé');
+    } catch (error) {
+      console.error('❌ Erreur abonnement Hyperliquid:', error);
+    }
   }
 
   private handleMessage(data: string): void {
     try {
-      const message: HyperliquidMessage = JSON.parse(data);
+      const message: any = JSON.parse(data);
       
-      // Traitement des différents types de messages
-      switch (message.type) {
-        case 'marketData':
-          this.processMarketData(message.data);
-          break;
-        case 'trades':
-          this.processTrades(message.data);
-          break;
-        case 'orderbook':
-          this.processOrderbook(message.data);
-          break;
-        case 'newMarket':
-          this.processNewMarket(message.data);
-          break;
-        default:
-          // Ignorer les autres types de messages
-          break;
+      // Traitement des différents types de messages Hyperliquid
+      if (message.result === 'subscribed') {
+        console.log('✅ Abonnement Hyperliquid confirmé');
+        return;
+      }
+      
+      if (message.result === 'pong') {
+        // Réponse au heartbeat
+        if (Date.now() - this.lastLogTime > 60000) {
+          console.log('💓 WebSocket Hyperliquid - heartbeat reçu');
+          this.lastLogTime = Date.now();
+        }
+        return;
+      }
+      
+      // Traitement des données de marché
+      if (message.channel === 'trades') {
+        this.processTrades(message.data);
+      } else if (message.channel === 'orderbook') {
+        this.processOrderbook(message.data);
+      } else if (message.channel === 'ticker') {
+        this.processMarketData(message.data);
+      } else if (message.type === 'error') {
+        console.error('❌ Erreur WebSocket Hyperliquid:', message.error);
+      } else {
+        // Ignorer les autres types de messages silencieusement
       }
     } catch (error) {
-      console.error('❌ Erreur parsing message Hyperliquid:', error);
+      // Ne pas logger toutes les erreurs de parsing pour éviter le spam
+      if (Date.now() - this.lastLogTime > 10000) { // Log max une fois par 10 secondes
+        console.error('❌ Erreur parsing message Hyperliquid:', error);
+        this.lastLogTime = Date.now();
+      }
     }
   }
 
@@ -164,7 +219,7 @@ export class HyperliquidWebSocket {
     // Traitement des données de marché
     // Détection de nouveaux tokens ou changements de prix
     const now = Date.now();
-    if (now - this.lastLogTime > 1000) { // Log une fois par seconde max
+    if (now - this.lastLogTime > 30000) { // Log une fois par 30 secondes max
       console.log('📊 Données marché Hyperliquid reçues');
       this.lastLogTime = now;
     }
@@ -174,7 +229,7 @@ export class HyperliquidWebSocket {
     // Traitement des trades
     // Détection d'activité anormale
     const now = Date.now();
-    if (now - this.lastLogTime > 1000) {
+    if (now - this.lastLogTime > 30000) {
       console.log('🔄 Trades Hyperliquid reçus');
       this.lastLogTime = now;
     }
@@ -184,7 +239,7 @@ export class HyperliquidWebSocket {
     // Traitement du carnet d'ordres
     // Détection de gros ordres
     const now = Date.now();
-    if (now - this.lastLogTime > 1000) {
+    if (now - this.lastLogTime > 30000) {
       console.log('📚 Orderbook Hyperliquid reçu');
       this.lastLogTime = now;
     }
@@ -218,9 +273,25 @@ export class HyperliquidWebSocket {
   private startPing(): void {
     this.pingInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+        try {
+          // Envoyer un heartbeat valide pour Hyperliquid
+          const heartbeatMessage = {
+            id: Date.now(),
+            method: 'ping'
+          };
+          
+          this.ws.send(JSON.stringify(heartbeatMessage));
+          
+          // Log périodique de l'activité
+          if (Date.now() - this.lastLogTime > 60000) { // Log toutes les minutes
+            console.log('💓 WebSocket Hyperliquid - heartbeat envoyé');
+            this.lastLogTime = Date.now();
+          }
+        } catch (error) {
+          console.error('❌ Erreur envoi heartbeat:', error);
+        }
       }
-    }, 30000); // Ping toutes les 30 secondes
+    }, 30000); // Heartbeat toutes les 30 secondes
   }
 
   private stopPing(): void {
@@ -233,13 +304,22 @@ export class HyperliquidWebSocket {
   private handleReconnect(): void {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      console.log(`🔄 Tentative de reconnexion Hyperliquid ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000); // Backoff exponentiel, max 30s
+      
+      console.log(`🔄 Tentative de reconnexion Hyperliquid ${this.reconnectAttempts}/${this.maxReconnectAttempts} dans ${delay}ms`);
       
       setTimeout(() => {
         this.connect();
-      }, this.reconnectDelay);
+      }, delay);
     } else {
       console.error('❌ Nombre maximum de tentatives de reconnexion atteint');
+      console.log('🔄 Redémarrage de la surveillance dans 60 secondes...');
+      
+      // Redémarrer complètement après 60 secondes
+      setTimeout(() => {
+        this.reconnectAttempts = 0;
+        this.connect();
+      }, 60000);
     }
   }
 
