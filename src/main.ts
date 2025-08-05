@@ -9,6 +9,7 @@ import { BithumbArticleScraper } from './bithumbArticleScraper';
 import { TradeRetryManager } from './retryManager';
 import { PerformanceMonitor } from './performanceMonitor';
 import { RiskManager } from './riskManager';
+import { StatusReporter } from './statusReporter';
 
 console.log("🚀 Frontrun Bot is running!");
 
@@ -35,6 +36,10 @@ let riskManager: RiskManager | null = null;
 async function startBot() {
   try {
     console.log("🤖 Initialisation du bot...");
+    
+    // Initialiser le rapporteur de statut
+    const statusReporter = new StatusReporter();
+    statusReporter.startReporting();
     
     // Valider la configuration Hyperliquid
     validateHyperliquidConfig();

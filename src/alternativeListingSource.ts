@@ -126,7 +126,8 @@ export class AlternativeListingSource implements ListingSource {
           timestamp: Date.now()
         };
         
-        console.log(`🆕 NOUVEAU LISTING BITHUMB (WebSocket): ${symbol}`);
+        // Log silencieux pour Railway
+        console.log(`🆕 NOUVEAU LISTING BITHUMB: ${symbol}`);
         callback(symbol, listingMetadata);
         this.saveKnownTokens();
       }
@@ -147,58 +148,62 @@ export class AlternativeListingSource implements ListingSource {
       });
       
       if (addedCount > 0) {
-        console.log(`📊 ${addedCount} tokens Bithumb ajoutés à knownTokens.json`);
+        console.log(`✅ ${addedCount} nouveaux tokens Bithumb ajoutés`);
         this.saveKnownTokens();
       }
       
       console.log(`📊 État final: Upbit ${this.knownTokens.size - bithumbTokens.length} tokens, Bithumb ${bithumbTokens.length} tokens`);
     }, 5000);
     
+    // Démarrer le polling Upbit avec logs réduits
+    this.startUpbitPolling(callback);
+  }
+
+  private startUpbitPolling(callback: (symbol: string, metadata?: ListingMetadata) => void): void {
     // Polling Upbit toutes les 2 secondes (optimal pour détection rapide)
     this.intervalId = setInterval(async () => {
       try {
         const upbitTokens = await this.fetchUpbitTickers();
-        const newTokens = upbitTokens.filter(token => !this.knownTokens.has(token));
-
-        if (newTokens.length > 0) {
-          console.log(`🆕 NOUVEAUX LISTINGS UPBIT DÉTECTÉS: ${newTokens.length} tokens`);
-
-          for (const token of newTokens) {
+        
+        // Log silencieux - seulement si nouveaux tokens détectés
+        let newTokensFound = 0;
+        
+        for (const token of upbitTokens) {
+          if (!this.knownTokens.has(token)) {
             this.knownTokens.add(token);
+            newTokensFound++;
             
-            const metadata: ListingMetadata = {
+            const listingMetadata: ListingMetadata = {
               title: `🆕 NOUVEAU LISTING UPBIT : ${token}`,
               url: `https://upbit.com/exchange?code=CRIX.UPBIT.KRW-${token}`,
-              source: 'Upbit REST',
+              source: 'Upbit REST API',
               timestamp: Date.now()
             };
-
+            
+            // Log seulement les nouveaux tokens
             console.log(`🆕 NOUVEAU LISTING UPBIT: ${token}`);
-            callback(token, metadata);
+            callback(token, listingMetadata);
           }
-          
+        }
+        
+        // Log de statut silencieux (toutes les 30 secondes)
+        const now = Date.now();
+        if (now - this.lastLogTime > 30000) {
+          console.log(`⏳ Surveillance active... (Upbit: ${upbitTokens.length}, Bithumb WebSocket: ${this.bithumbWebSocket.getKnownSymbolsCount()})`);
+          this.lastLogTime = now;
+        }
+        
+        if (newTokensFound > 0) {
           this.saveKnownTokens();
         }
-
+        
       } catch (error) {
-        // Log silencieux pour éviter le spam - seulement en cas d'erreur critique
-        if (error instanceof Error && !error.message.includes('timeout') && !error.message.includes('429')) {
-          console.error('❌ Erreur critique Upbit :', error.message);
-        }
-        
-        // Si erreur de rate limiting, pause courte
-        if (error instanceof Error && (error.message?.includes('429') || error.message?.includes('rate limit'))) {
-          console.warn('⚠️ Rate limit détecté, pause de 5 secondes...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-        
-        // Si timeout, pause très courte
-        if (error instanceof Error && error.message?.includes('timeout')) {
-          console.warn('⏱️ Timeout détecté, pause de 1 seconde...');
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        // Log seulement les erreurs critiques
+        if (error instanceof Error && !error.message.includes('timeout')) {
+          console.error("❌ Erreur polling Upbit:", error.message);
         }
       }
-    }, 2000); // Vérification Upbit toutes les 2 secondes (optimal)
+    }, 2000);
   }
 
   stopListening(): void {
