@@ -10,6 +10,9 @@ export class AlternativeListingSource implements ListingSource {
   private knownTokensPath: string;
   private bithumbWebSocket: BithumbWebSocket;
   private userAgentIndex: number = 0;
+  private lastLogTime: number = 0;
+  private errorCount: number = 0;
+  private successCount: number = 0;
 
   private readonly userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -58,9 +61,8 @@ export class AlternativeListingSource implements ListingSource {
 
   private async fetchUpbitTickers(): Promise<string[]> {
     try {
-      console.log("🔍 Récupération des tokens via API Upbit.");
       const response = await axios.get("https://api.upbit.com/v1/market/all", {
-        timeout: 10000,
+        timeout: 5000, // Timeout plus court pour rapidité
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'application/json, text/plain, */*',
@@ -79,16 +81,17 @@ export class AlternativeListingSource implements ListingSource {
       );
 
       const tokens = markets.map((market: any) => market.market.replace('KRW-', ''));
-      console.log(`🇰🇷 Nombre de tokens Upbit : ${tokens.length}`);
       return tokens;
     } catch (error) {
-      console.error("❌ Erreur fetch Upbit API :", error);
+      // Log seulement les erreurs critiques (pas les timeouts normaux)
+      if (error instanceof Error && !error.message.includes('timeout') && !error.message.includes('429')) {
+        console.error("❌ Erreur fetch Upbit API :", error.message);
+      }
       
       // Essayer un endpoint alternatif Upbit
       try {
-        console.log("🔄 Tentative endpoint alternatif Upbit...");
         const response = await axios.get("https://api.upbit.com/v1/ticker?markets=KRW-BTC", {
-          timeout: 8000,
+          timeout: 3000, // Timeout très court
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; UpbitBot/1.0)',
             'Accept': 'application/json'
@@ -96,11 +99,10 @@ export class AlternativeListingSource implements ListingSource {
         });
         
         if (response.data && Array.isArray(response.data)) {
-          console.log(`🇰🇷 Test endpoint alternatif Upbit réussi`);
           return ['BTC']; // Retourner au moins BTC pour confirmer que l'API fonctionne
         }
-      } catch (fallbackError) {
-        console.error("❌ Échec endpoint alternatif Upbit :", fallbackError);
+      } catch (altError) {
+        // Log silencieux pour l'endpoint alternatif
       }
       
       return [];
@@ -152,16 +154,14 @@ export class AlternativeListingSource implements ListingSource {
       console.log(`📊 État final: Upbit ${this.knownTokens.size - bithumbTokens.length} tokens, Bithumb ${bithumbTokens.length} tokens`);
     }, 5000);
     
-    // Polling Upbit toutes les 2 secondes
+    // Polling Upbit toutes les 2 secondes (optimal pour détection rapide)
     this.intervalId = setInterval(async () => {
       try {
-        console.log("🔄 Vérification des nouveaux listings Upbit...");
-        
         const upbitTokens = await this.fetchUpbitTickers();
         const newTokens = upbitTokens.filter(token => !this.knownTokens.has(token));
 
         if (newTokens.length > 0) {
-          console.log(`📊 Upbit: ${upbitTokens.length}, Nouveaux: ${newTokens.length}`);
+          console.log(`🆕 NOUVEAUX LISTINGS UPBIT DÉTECTÉS: ${newTokens.length} tokens`);
 
           for (const token of newTokens) {
             this.knownTokens.add(token);
@@ -178,29 +178,27 @@ export class AlternativeListingSource implements ListingSource {
           }
           
           this.saveKnownTokens();
-        } else {
-          // Log très peu fréquent pour éviter le spam
-          if (Math.random() < 0.05) { // 5% de chance de logger
-            console.log("⏳ Surveillance active... (Upbit: " + upbitTokens.length + ", Bithumb WebSocket: " + this.bithumbWebSocket.getKnownSymbolsCount() + ")");
-          }
         }
 
       } catch (error) {
-        console.error('❌ Erreur lors de la vérification Upbit :', error);
-        
-        // Si erreur de rate limiting, attendre un peu plus
-        if (error instanceof Error && (error.message?.includes('429') || error.message?.includes('rate limit'))) {
-          console.warn('⚠️ Rate limit détecté, pause de 15 secondes...');
-          await new Promise(resolve => setTimeout(resolve, 15000));
+        // Log silencieux pour éviter le spam - seulement en cas d'erreur critique
+        if (error instanceof Error && !error.message.includes('timeout') && !error.message.includes('429')) {
+          console.error('❌ Erreur critique Upbit :', error.message);
         }
         
-        // Si timeout, pause courte
-        if (error instanceof Error && error.message?.includes('timeout')) {
-          console.warn('⏱️ Timeout détecté, pause de 5 secondes...');
+        // Si erreur de rate limiting, pause courte
+        if (error instanceof Error && (error.message?.includes('429') || error.message?.includes('rate limit'))) {
+          console.warn('⚠️ Rate limit détecté, pause de 5 secondes...');
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
+        
+        // Si timeout, pause très courte
+        if (error instanceof Error && error.message?.includes('timeout')) {
+          console.warn('⏱️ Timeout détecté, pause de 1 seconde...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
-    }, 2000); // Vérification Upbit toutes les 2 secondes
+    }, 2000); // Vérification Upbit toutes les 2 secondes (optimal)
   }
 
   stopListening(): void {
