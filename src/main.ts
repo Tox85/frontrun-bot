@@ -1,8 +1,14 @@
 import { AlternativeListingSource } from "./alternativeListingSource";
 import { executeTrade, initializeTrader, checkBalance } from "./trader";
-import { hasPerpOnBybit } from "./exchangeChecker";
 import { TelegramService } from "./telegramService";
 import { startHealthCheck } from './healthCheck';
+import { HyperliquidWebSocket } from './hyperliquidWebSocket';
+import { HyperliquidTrader } from './hyperliquidTrader';
+import { validateHyperliquidConfig } from './hyperliquidConfig';
+import { BithumbArticleScraper } from './bithumbArticleScraper';
+import { TradeRetryManager } from './retryManager';
+import { PerformanceMonitor } from './performanceMonitor';
+import { RiskManager } from './riskManager';
 
 console.log("🚀 Frontrun Bot is running!");
 
@@ -18,7 +24,13 @@ try {
 // Variables globales
 let traderInitialized = false;
 let listingSource: AlternativeListingSource | null = null;
+let hyperliquidWebSocket: HyperliquidWebSocket | null = null;
+let hyperliquidTrader: HyperliquidTrader | null = null;
 let telegramService: TelegramService | null = null;
+let articleScraper: BithumbArticleScraper | null = null;
+let retryManager: TradeRetryManager | null = null;
+let performanceMonitor: PerformanceMonitor | null = null;
+let riskManager: RiskManager | null = null;
 
 async function startBot() {
   try {
@@ -28,24 +40,52 @@ async function startBot() {
     telegramService = new TelegramService();
     await telegramService.sendBotStatus("Démarrage", "Initialisation du bot...");
 
-    // Connecter le service Telegram au trader
-    const { setTelegramService } = await import('./trader');
-    setTelegramService(telegramService);
+    // Initialiser les nouveaux modules
+    console.log("📊 Initialisation des modules avancés...");
+    retryManager = new TradeRetryManager(telegramService);
+    performanceMonitor = new PerformanceMonitor(telegramService);
+    riskManager = new RiskManager(telegramService);
+    articleScraper = new BithumbArticleScraper(telegramService);
 
-    // Initialiser le trader Bybit
-    traderInitialized = await initializeTrader();
+    // Connecter le service Telegram au trader
+    const { setTelegramService, setRiskManager } = await import('./trader');
+    setTelegramService(telegramService);
+    if (riskManager) {
+      setRiskManager(riskManager);
+    }
+
+    // Initialiser le trader Hyperliquid avec retry
+    console.log("🔧 Initialisation du trader Hyperliquid...");
+    hyperliquidTrader = new HyperliquidTrader();
+    
+    if (retryManager) {
+      traderInitialized = await retryManager.executeWithRetry(
+        () => hyperliquidTrader!.initialize(),
+        "Initialisation Hyperliquid"
+      );
+    } else {
+      traderInitialized = await hyperliquidTrader.initialize();
+    }
     
     if (!traderInitialized) {
-      await telegramService.sendError("Impossible d'initialiser le trader", "Arrêt du bot");
-      console.error("❌ Impossible d'initialiser le trader, arrêt du bot");
+      await telegramService.sendError("Impossible d'initialiser le trader Hyperliquid", "Arrêt du bot");
+      console.error("❌ Impossible d'initialiser le trader Hyperliquid, arrêt du bot");
       process.exit(1);
     }
 
-    await telegramService.sendBotStatus("Trader initialisé", "Bybit configuré avec succès");
+    await telegramService.sendBotStatus("Trader initialisé", "Hyperliquid configuré avec succès");
 
-    // Vérifier la balance
+    // Vérifier la balance avec retry
     try {
-      const balance = await checkBalance();
+      let balance;
+      if (retryManager) {
+        balance = await retryManager.executeWithRetry(
+          () => hyperliquidTrader!.checkBalance(),
+          "Vérification balance"
+        );
+      } else {
+        balance = await hyperliquidTrader.checkBalance();
+      }
       await telegramService.sendBalanceUpdate(balance);
     } catch (error) {
       console.warn("⚠️ Impossible de vérifier la balance, mais le bot continue...");
@@ -56,28 +96,115 @@ async function startBot() {
     listingSource = new AlternativeListingSource();
     await telegramService.sendBotStatus("Surveillance activée", "Détection des nouveaux listings en cours...");
 
-    // Gestionnaire des nouveaux listings
+    // Initialiser le WebSocket Hyperliquid
+    hyperliquidWebSocket = new HyperliquidWebSocket();
+    await hyperliquidWebSocket.startListening(handleNewListing);
+
+    // Démarrer la surveillance des articles Bithumb (désactivé temporairement)
+    if (articleScraper) {
+      // await articleScraper.startMonitoring();
+      console.log("📰 Surveillance articles Bithumb désactivée (Cloudflare protection)");
+    }
+
+    // Gestionnaire des nouveaux listings avec monitoring
     async function handleNewListing(symbol: string, metadata?: any) {
+      const detectionStart = Date.now();
+      
       console.log(`🆕 NOUVEAU LISTING DÉTECTÉ !`);
       console.log(`Symbole : ${symbol}`);
       if (metadata) {
-        console.log(`Titre   : ${metadata.title}`);
-        console.log(`URL     : ${metadata.url}`);
+        console.log(`Exchange : ${metadata.exchange}`);
+        console.log(`Marché complet : ${metadata.fullSymbol}`);
+      }
+
+      // Enregistrer la détection
+      if (performanceMonitor) {
+        performanceMonitor.recordDetection(symbol, Date.now() - detectionStart);
       }
 
       // Notification Telegram
       await telegramService?.sendNewListing(symbol, metadata);
 
-      // Vérifier si le perpétuel existe sur Bybit
-      const hasPerpBybit = await hasPerpOnBybit(symbol);
+      // Vérifier si le perpétuel existe sur Hyperliquid avec retry
+      let hasPerpHyperliquid = false;
+      try {
+        if (retryManager) {
+          hasPerpHyperliquid = await retryManager.executeWithRetry(
+            () => hyperliquidTrader!.hasPerp(symbol),
+            `Vérification perp ${symbol}`
+          );
+        } else {
+          const result = await hyperliquidTrader?.hasPerp(symbol);
+          hasPerpHyperliquid = result === true;
+        }
+      } catch (error) {
+        console.error(`❌ Erreur vérification perp ${symbol}:`, error);
+      }
 
-      if (hasPerpBybit) {
-        console.log(`✅ Perp détecté sur Bybit ! Lancement du trade...`);
-        await telegramService?.sendBotStatus("Trade Bybit", `Ouverture position sur ${symbol}`);
-        await executeTrade(symbol, 'Bybit');
+      if (hasPerpHyperliquid) {
+        console.log(`✅ Perp détecté sur Hyperliquid ! Vérification des risques...`);
+        
+        // Vérification des risques avant le trade
+        if (riskManager) {
+          const riskCheck = await riskManager.canTrade(symbol, 400); // Montant par défaut
+          
+          if (!riskCheck.allowed) {
+            console.log(`🛡️ Trade bloqué: ${riskCheck.reason}`);
+            await telegramService?.sendBotStatus("Trade bloqué", `${symbol}: ${riskCheck.reason}`);
+            return; // Arrêter ici
+          }
+          
+          console.log(`🛡️ Vérification risque: AUTORISÉ`);
+        }
+        
+        await telegramService?.sendBotStatus("Trade Hyperliquid", `Ouverture position sur ${symbol}`);
+        
+        const tradeStart = Date.now();
+        try {
+          if (retryManager) {
+            await retryManager.executeTradeWithRetry(
+              () => executeTrade(symbol, 'Hyperliquid'),
+              symbol,
+              'Hyperliquid'
+            );
+          
+            // Enregistrer le trade réussi
+            if (performanceMonitor) {
+              performanceMonitor.recordTrade(
+                symbol,
+                'Hyperliquid',
+                Date.now() - detectionStart,
+                Date.now() - tradeStart,
+                true
+              );
+            }
+            
+            // Enregistrer dans le risk manager
+            if (riskManager) {
+              await riskManager.recordTrade(symbol, 400);
+            }
+          } else {
+            await executeTrade(symbol, 'Hyperliquid');
+          }
+        } catch (error) {
+          console.error(`❌ Erreur trade ${symbol}:`, error);
+          
+          // Enregistrer le trade échoué
+          if (performanceMonitor) {
+            performanceMonitor.recordTrade(
+              symbol,
+              'Hyperliquid',
+              Date.now() - detectionStart,
+              Date.now() - tradeStart,
+              false,
+              undefined,
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        }
       } else {
-        console.log(`❌ Perp non disponible sur Bybit pour ${symbol}`);
-        await telegramService?.sendBotStatus("Aucun perp trouvé", `${symbol} non disponible sur Bybit`);
+        console.log(`❌ Perp non disponible sur Hyperliquid pour ${symbol}`);
+        await telegramService?.sendBotStatus("Aucun perp trouvé", `${symbol} non disponible sur Hyperliquid`);
       }
     }
 
@@ -86,6 +213,11 @@ async function startBot() {
 
     // Notification de démarrage réussi
     await telegramService.sendBotStatus("Bot opérationnel", "Surveillance active - prêt à détecter les nouveaux listings");
+    
+    // Envoyer rapport de risque initial
+    if (riskManager) {
+      await riskManager.sendDailyRiskReport();
+    }
 
   } catch (error) {
     console.error('❌ Erreur lors du démarrage du bot:', error);
@@ -99,9 +231,23 @@ const gracefulShutdown = async (signal: string) => {
   console.log(`\n🛑 Arrêt du bot (${signal})...`);
   try {
     await telegramService?.sendBotStatus("Arrêt", `Bot arrêté (${signal})`);
+    
+    // Arrêter tous les modules
     if (listingSource) {
       listingSource.stopListening();
     }
+    if (hyperliquidWebSocket) {
+      hyperliquidWebSocket.stopListening();
+    }
+    if (articleScraper) {
+      await articleScraper.stopMonitoring();
+    }
+    
+    // Envoyer rapport final
+    if (performanceMonitor) {
+      await performanceMonitor.sendDailyReport();
+    }
+    
     console.log('✅ Arrêt propre terminé');
     process.exit(0);
   } catch (error) {

@@ -11,7 +11,7 @@ interface TradeResult {
 
 export class BybitTrader {
   private exchange: ccxt.bybit;
-  private activePositions: Map<string, { orderId: string; closeTimer: NodeJS.Timeout }> = new Map();
+  private activePositions: Map<string, { orderId: string; closeTimer: NodeJS.Timeout; stopLossTimer?: NodeJS.Timeout }> = new Map();
 
   constructor() {
     const config: any = {
@@ -20,18 +20,19 @@ export class BybitTrader {
       enableRateLimit: true,
       options: {
         defaultType: 'swap', // Futures/Perp
+        recvWindow: 10000, // Augmenter la fenêtre de réception
+        adjustForTimeDifference: true, // Ajuster automatiquement l'horloge
       }
     };
 
     // Configuration spécifique pour le testnet
     if (BYBIT_CONFIG.sandbox) {
-      config.urls = {
-        api: {
-          public: 'https://api-testnet.bybit.com',
-          private: 'https://api-testnet.bybit.com',
-        }
-      };
-      config.sandbox = true;
+      // ✅ CORRECTION : Utiliser testnet: true pour Bybit testnet
+      config.testnet = true;
+      // ❌ SUPPRIMER : Pas de urls personnalisées pour testnet
+      // config.urls = { ... }
+      // ❌ SUPPRIMER : Pas de sandbox: true pour Bybit
+      // config.sandbox = true;
     }
 
     this.exchange = new ccxt.bybit(config);
@@ -66,6 +67,22 @@ export class BybitTrader {
       };
     } catch (error) {
       console.error('❌ Erreur récupération balance:', error);
+      
+      // Gestion spécifique des erreurs d'authentification
+      if (error instanceof Error) {
+        if (error.message.includes('API key is invalid') || error.message.includes('10003')) {
+          console.error('🔑 ERREUR AUTHENTIFICATION BYBIT:');
+          console.error('   - Vérifiez que vos clés API sont correctes');
+          console.error('   - Pour le testnet, utilisez les clés de https://testnet.bybit.com/');
+          console.error('   - Pour la production, utilisez les clés de https://www.bybit.com/');
+          console.error('   - Assurez-vous que IS_DEMO=true pour le testnet');
+        } else if (error.message.includes('IP not whitelisted')) {
+          console.error('🌐 ERREUR IP: Votre IP n\'est pas autorisée dans les paramètres API');
+        } else if (error.message.includes('permission')) {
+          console.error('🔐 ERREUR PERMISSIONS: Vérifiez les permissions de votre clé API (Read, Trade, Futures)');
+        }
+      }
+      
       return { available: 0, total: 0 };
     }
   }
@@ -98,6 +115,23 @@ export class BybitTrader {
         };
       }
 
+      // Récupérer le prix actuel pour calculer le stop-loss
+      const ticker = await this.exchange.fetchTicker(symbolPair);
+      const currentPrice = ticker.last || ticker.close || 0;
+      
+      if (!currentPrice || currentPrice <= 0) {
+        return {
+          success: false,
+          error: `Impossible de récupérer le prix actuel pour ${symbolPair}`
+        };
+      }
+
+      // Calculer le prix de stop-loss (pourcentage en dessous du prix actuel)
+      const stopLossPrice = currentPrice * (1 - TRADING_CONFIG.stopLossPercent / 100);
+      
+      console.log(`📊 Prix actuel: ${currentPrice}`);
+      console.log(`🛑 Stop-loss: ${stopLossPrice} (${TRADING_CONFIG.stopLossPercent}% en dessous)`);
+
       // Ouvrir la position (long) avec le montant configuré
       const order = await this.exchange.createOrder(
         symbolPair,
@@ -116,6 +150,9 @@ export class BybitTrader {
 
       // Programmer la clôture automatique
       this.scheduleAutoClose(symbol, order.id);
+
+      // Programmer le monitoring du stop-loss
+      this.scheduleStopLossMonitoring(symbol, symbolPair, stopLossPrice, order.id);
 
       return {
         success: true,
@@ -138,7 +175,39 @@ export class BybitTrader {
       await this.closePosition(symbol, orderId);
     }, TRADING_CONFIG.autoCloseMinutes * 60 * 1000);
 
-    this.activePositions.set(symbol, { orderId, closeTimer });
+    // Mettre à jour ou créer l'entrée dans activePositions
+    const existing = this.activePositions.get(symbol);
+    if (existing) {
+      clearTimeout(existing.closeTimer);
+      existing.orderId = orderId;
+      existing.closeTimer = closeTimer;
+    } else {
+      this.activePositions.set(symbol, { orderId, closeTimer });
+    }
+  }
+
+  private scheduleStopLossMonitoring(symbol: string, symbolPair: string, stopLossPrice: number, orderId: string): void {
+    // Vérifier le prix toutes les 10 secondes
+    const stopLossTimer = setInterval(async () => {
+      try {
+        const ticker = await this.exchange.fetchTicker(symbolPair);
+        const currentPrice = ticker.last || ticker.close || 0;
+        
+        if (currentPrice <= stopLossPrice) {
+          console.log(`🛑 STOP-LOSS DÉCLENCHÉ pour ${symbol}! Prix: ${currentPrice} <= ${stopLossPrice}`);
+          clearInterval(stopLossTimer);
+          await this.closePosition(symbol, orderId);
+        }
+      } catch (error) {
+        console.error(`❌ Erreur monitoring stop-loss pour ${symbol}:`, error);
+      }
+    }, 10000); // Vérification toutes les 10 secondes
+
+    // Ajouter le timer de stop-loss à la position active
+    const existing = this.activePositions.get(symbol);
+    if (existing) {
+      existing.stopLossTimer = stopLossTimer;
+    }
   }
 
   async closePosition(symbol: string, orderId?: string): Promise<TradeResult> {
@@ -176,9 +245,13 @@ export class BybitTrader {
         }
       );
 
-      // Nettoyer le timer
+      // Nettoyer les timers
       if (this.activePositions.has(symbol)) {
-        clearTimeout(this.activePositions.get(symbol)!.closeTimer);
+        const position = this.activePositions.get(symbol)!;
+        clearTimeout(position.closeTimer);
+        if (position.stopLossTimer) {
+          clearInterval(position.stopLossTimer);
+        }
         this.activePositions.delete(symbol);
       }
 

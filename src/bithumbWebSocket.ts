@@ -23,6 +23,7 @@ export class BithumbWebSocket {
   private knownSymbols: Set<string> = new Set();
   private onNewListing: ((symbol: string, metadata?: any) => void) | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
+  private lastLogTime: number = 0;
 
   constructor() {
     console.log("🔌 Initialisation WebSocket Bithumb...");
@@ -34,7 +35,7 @@ export class BithumbWebSocket {
       console.log("🔄 Initialisation des tokens Bithumb existants...");
       
       // Utiliser l'API principale qui contient tous les marchés
-      const response = await axios.get('https://api.bithumb.com/v1/market/all', {
+      const response = await axios.get('https://api.bithumb.com/public/ticker/ALL_KRW', {
         timeout: 10000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -44,45 +45,40 @@ export class BithumbWebSocket {
 
       console.log("📡 Réponse API Bithumb reçue:", response.status);
       
-      // L'API retourne directement un tableau de marchés
-      if (Array.isArray(response.data)) {
-        const markets = response.data;
-        console.log("📊 Nombre de marchés reçus:", markets.length);
+      // Debug: afficher la structure de la réponse
+      console.log("🔍 Structure de la réponse:", Object.keys(response.data));
+      
+      // L'API retourne un objet avec les données des tickers
+      if (response.data && response.data.data) {
+        const tickers = response.data.data;
+        console.log("📊 Nombre de tickers reçus:", Object.keys(tickers).length);
         
-        // Filtrer les marchés KRW et extraire les symboles
-        const krwMarkets = markets.filter((market: any) => 
-          market.market && market.market.startsWith('KRW-')
-        );
+        // Debug: afficher quelques exemples de clés
+        const sampleKeys = Object.keys(tickers).slice(0, 5);
+        console.log("🔍 Exemples de clés:", sampleKeys);
         
-        console.log("📊 Paires KRW trouvées:", krwMarkets.length);
-        
-        krwMarkets.forEach((market: any) => {
-          const symbol = market.market.replace('KRW-', '');
-          this.knownSymbols.add(symbol);
+        // ✅ CORRECTION : Les clés sont directement les symboles (BTC, ETH, etc.)
+        // Pas besoin de chercher _KRW, toutes les clés sont des tokens KRW
+        let tokenCount = 0;
+        Object.keys(tickers).forEach(symbol => {
+          // Filtrer les symboles valides (exclure les symboles trop courts ou spéciaux)
+          if (symbol && symbol.length >= 2 && symbol.length <= 10 && /^[A-Z0-9]+$/.test(symbol)) {
+            this.knownSymbols.add(symbol);
+            tokenCount++;
+          }
         });
         
-        console.log(`🇰🇷 ${this.knownSymbols.size} tokens Bithumb existants initialisés`);
+        console.log(`🇰🇷 ${tokenCount} tokens Bithumb existants initialisés`);
         console.log("📋 Exemples:", Array.from(this.knownSymbols).slice(0, 10));
-      } else if (response.data && response.data.data) {
-        // Format alternatif avec data.data
-        const markets = response.data.data;
-        console.log("📊 Nombre de marchés reçus (format alternatif):", markets.length);
         
-        const krwMarkets = markets.filter((market: any) => 
-          market.market && market.market.startsWith('KRW-')
-        );
-        
-        console.log("📊 Paires KRW trouvées:", krwMarkets.length);
-        
-        krwMarkets.forEach((market: any) => {
-          const symbol = market.market.replace('KRW-', '');
-          this.knownSymbols.add(symbol);
-        });
-        
-        console.log(`🇰🇷 ${this.knownSymbols.size} tokens Bithumb existants initialisés`);
-        console.log("📋 Exemples:", Array.from(this.knownSymbols).slice(0, 10));
+        // Si aucun token n'a été trouvé, essayer un format alternatif
+        if (tokenCount === 0) {
+          console.log("⚠️ Aucun token trouvé, tentative format alternatif...");
+          await this.tryAlternativeFormat();
+        }
       } else {
-        console.warn("⚠️ Format de réponse Bithumb inattendu:", typeof response.data, response.data);
+        console.warn("⚠️ Format de réponse Bithumb inattendu:", typeof response.data);
+        await this.tryAlternativeFormat();
       }
     } catch (error) {
       console.warn("⚠️ Impossible d'initialiser les tokens Bithumb existants:", error instanceof Error ? error.message : String(error));
@@ -90,7 +86,41 @@ export class BithumbWebSocket {
     }
   }
 
+  private async tryAlternativeFormat(): Promise<void> {
+    try {
+      console.log("🔄 Tentative avec format alternatif...");
+      
+      // Essayer l'API des marchés
+      const response = await axios.get('https://api.bithumb.com/public/markets', {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
+      });
 
+      console.log("📡 Réponse API marchés reçue:", response.status);
+      
+      if (response.data && response.data.data) {
+        const markets = response.data.data;
+        console.log("📊 Nombre de marchés reçus:", markets.length);
+        
+        let tokenCount = 0;
+        markets.forEach((market: any) => {
+          if (market.market && market.market.startsWith('KRW-')) {
+            const baseSymbol = market.market.replace('KRW-', '');
+            this.knownSymbols.add(baseSymbol);
+            tokenCount++;
+          }
+        });
+        
+        console.log(`🇰🇷 ${tokenCount} tokens Bithumb (format alternatif) initialisés`);
+        console.log("📋 Exemples:", Array.from(this.knownSymbols).slice(0, 10));
+      }
+    } catch (error) {
+      console.warn("⚠️ Format alternatif échoué:", error instanceof Error ? error.message : String(error));
+    }
+  }
 
   public startListening(callback: (symbol: string, metadata?: any) => void): void {
     this.onNewListing = callback;
@@ -173,57 +203,53 @@ export class BithumbWebSocket {
     try {
       const message = JSON.parse(data);
       
-      // Log tous les messages pour debug
-      if (message.type === 'ticker') {
-        console.log("📨 Message ticker Bithumb reçu:", JSON.stringify(message, null, 2));
-      } else if (message.status) {
-        console.log("📨 Message de statut Bithumb:", message.resmsg);
-      } else {
-        console.log("📨 Message WebSocket inconnu:", JSON.stringify(message, null, 2));
+      // Log seulement les messages importants (nouveaux listings)
+      if (message.type === 'ticker' && message.content) {
+        this.processTickerMessage(message.content);
+      } else if (message.status && message.status !== '0000') {
+        // Log seulement les erreurs de statut
+        console.log("⚠️ Message de statut Bithumb:", message.resmsg || message.status);
       }
       
-      // Traiter seulement les messages de type ticker
-      if (message.type !== 'ticker') return;
-      
-      const symbol = message?.content?.symbol;
-      if (symbol && symbol.endsWith('_KRW')) {
-        const baseSymbol = symbol.replace('_KRW', '');
-        
-        if (!this.knownSymbols.has(baseSymbol)) {
-          this.knownSymbols.add(baseSymbol);
-          console.log(`🟢 Nouveau token listé sur Bithumb : ${baseSymbol}/KRW`);
-          
-          if (this.onNewListing) {
-            this.onNewListing(baseSymbol, {
-              volume: message.content?.acc_trade_value_24H || '0'
-            });
-          }
-        }
-      }
     } catch (err) {
       console.error('❌ Erreur parsing message Bithumb :', err);
     }
   }
 
-  private handleTickerData(content: BithumbTickerData): void {
+  private processTickerMessage(content: any): void {
+    // Vérifier si c'est un nouveau ticker
     if (content && content.symbol) {
       const symbol = content.symbol;
       
-      // Détecter les nouveaux symboles KRW
+      // ✅ CORRECTION : Les symboles peuvent être au format "BTC" ou "BTC_KRW"
+      // Normaliser le symbole
+      let tokenSymbol = symbol;
+      
+      // Si le symbole contient _KRW, l'extraire
       if (symbol.includes('_KRW')) {
-        const tokenSymbol = symbol.replace('_KRW', '');
-        
+        tokenSymbol = symbol.replace('_KRW', '');
+      }
+      
+      // Vérifier si c'est un symbole valide
+      if (tokenSymbol && tokenSymbol.length >= 2 && tokenSymbol.length <= 10 && /^[A-Z0-9]+$/.test(tokenSymbol)) {
+        // Vérifier si c'est un nouveau token
         if (!this.knownSymbols.has(tokenSymbol)) {
           this.knownSymbols.add(tokenSymbol);
           
-          if (this.onNewListing) {
+          // Log avec timestamp pour éviter le spam
+          const now = Date.now();
+          if (now - this.lastLogTime > 1000) { // Log max 1 fois par seconde
             console.log(`🆕 NOUVEAU LISTING BITHUMB: ${tokenSymbol} (${symbol})`);
+            this.lastLogTime = now;
+          }
+          
+          if (this.onNewListing) {
             this.onNewListing(tokenSymbol, {
-              source: 'Bithumb',
+              source: 'Bithumb WebSocket',
               timestamp: Date.now(),
               symbol: symbol,
-              price: content.closePrice,
-              volume: content.volume,
+              price: content.closePrice || '0',
+              volume: content.acc_trade_value_24H || '0',
               type: 'websocket'
             });
           }
