@@ -10,4 +10,6 @@ export interface ListingMetadata {
   url?: string;
   timestamp?: number;
   source?: string;
+  price?: string;
+  volume?: string;
 } 

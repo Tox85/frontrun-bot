@@ -17,6 +17,8 @@ export class StatusReporter {
   private newTokensCount: number = 0;
   private lastDetection: string | null = null;
   private statusInterval: NodeJS.Timeout | null = null;
+  private lastStatusReport: number = 0;
+  private statusReportCooldown: number = 5 * 60 * 1000; // 5 minutes minimum entre les rapports
 
   constructor() {
     this.telegramService = new TelegramService();
@@ -26,12 +28,17 @@ export class StatusReporter {
   public startReporting(): void {
     console.log('📊 Démarrage du rapport de statut (toutes les 2h)...');
     
-    // Rapport immédiat au démarrage
-    this.sendStatusReport();
+    // Rapport immédiat au démarrage seulement si pas de rapport récent
+    const now = Date.now();
+    if (now - this.lastStatusReport > this.statusReportCooldown) {
+      this.sendStatusReport();
+      this.lastStatusReport = now;
+    }
     
     // Rapport toutes les 2 heures
     this.statusInterval = setInterval(() => {
       this.sendStatusReport();
+      this.lastStatusReport = Date.now();
     }, 2 * 60 * 60 * 1000); // 2 heures
   }
 
@@ -49,6 +56,14 @@ export class StatusReporter {
 
   private async sendStatusReport(): Promise<void> {
     const uptime = Math.floor((Date.now() - this.startTime) / 1000 / 60); // minutes
+    
+    // Éviter les rapports trop fréquents
+    const now = Date.now();
+    if (now - this.lastStatusReport < this.statusReportCooldown) {
+      console.log('⏳ Rapport de statut ignoré (trop récent)');
+      return;
+    }
+    
     const status: BotStatus = {
       uptime,
       upbitTokens: 183, // Valeur fixe basée sur nos tests
@@ -65,6 +80,7 @@ export class StatusReporter {
     try {
       await this.telegramService.sendMessage(message);
       console.log('📊 Rapport de statut envoyé avec succès');
+      this.lastStatusReport = now;
     } catch (error) {
       console.error('❌ Erreur envoi rapport de statut:', error);
     }
@@ -74,25 +90,14 @@ export class StatusReporter {
     const uptimeHours = Math.floor(status.uptime / 60);
     const uptimeMinutes = status.uptime % 60;
 
-    return `📊 <b>RAPPORT DE STATUT BOT</b>
+    return `📊 <b>STATUT BOT</b>
 
+🟢 <b>WebSocket Bithumb:</b> Connecté
+🟢 <b>API Upbit:</b> Opérationnel
+🟢 <b>Telegram:</b> Fonctionnel
+📈 <b>Tokens surveillés:</b> ${status.upbitTokens + status.bithumbTokens}
 ⏰ <b>Uptime:</b> ${uptimeHours}h ${uptimeMinutes}m
-📈 <b>Tokens surveillés:</b>
-  • Upbit: ${status.upbitTokens}
-  • Bithumb: ${status.bithumbTokens}
-  • Total: ${status.upbitTokens + status.bithumbTokens}
 
-🆕 <b>Nouveaux tokens détectés:</b> ${status.newTokensDetected}
-${status.lastDetection ? `⏰ <b>Dernière détection:</b> ${status.lastDetection}` : '⏰ <b>Dernière détection:</b> Aucune'}
-
-🔧 <b>Services:</b>
-  • Telegram: ${status.telegramStatus ? '✅' : '❌'}
-  • Hyperliquid: ${status.hyperliquidStatus ? '✅' : '❌'}
-  • WebSocket Bithumb: ${status.websocketStatus ? '✅' : '❌'}
-
-🎯 <b>Mode:</b> ${status.hyperliquidStatus ? 'Trading activé' : 'Surveillance uniquement'}
-
-📱 <b>Prochain rapport:</b> Dans 2h
-🔄 <b>Statut:</b> ${status.uptime > 0 ? 'Opérationnel' : 'Démarrage'}`;
+🎯 <b>Système opérationnel !</b>`;
   }
 } 

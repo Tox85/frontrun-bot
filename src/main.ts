@@ -10,6 +10,8 @@ import { TradeRetryManager } from './retryManager';
 import { PerformanceMonitor } from './performanceMonitor';
 import { RiskManager } from './riskManager';
 import { StatusReporter } from './statusReporter';
+import { DiagnosticTool } from './diagnostic';
+import { ListingQueue } from './listingQueue';
 
 console.log("🚀 Frontrun Bot is running!");
 
@@ -32,10 +34,37 @@ let articleScraper: BithumbArticleScraper | null = null;
 let retryManager: TradeRetryManager | null = null;
 let performanceMonitor: PerformanceMonitor | null = null;
 let riskManager: RiskManager | null = null;
+let listingQueue: ListingQueue | null = null;
+
+// Système de monitoring des anomalies
+let messageCount = 0;
+let lastMessageTime = 0;
+const MESSAGE_RATE_LIMIT = 10; // Max 10 messages par minute
+const MESSAGE_TIME_WINDOW = 60000; // 1 minute
+
+function checkMessageRate(): boolean {
+  const now = Date.now();
+  if (now - lastMessageTime < MESSAGE_TIME_WINDOW) {
+    messageCount++;
+    if (messageCount > MESSAGE_RATE_LIMIT) {
+      console.warn('🚨 Taux de messages trop élevé - possible spam détecté');
+      return false;
+    }
+  } else {
+    messageCount = 1;
+    lastMessageTime = now;
+  }
+  return true;
+}
 
 async function startBot() {
   try {
     console.log("🤖 Initialisation du bot...");
+    
+    // Diagnostic système au démarrage
+    console.log("🔍 Exécution du diagnostic système...");
+    const diagnosticTool = new DiagnosticTool();
+    await diagnosticTool.runDiagnostic();
     
     // Initialiser le rapporteur de statut
     const statusReporter = new StatusReporter();
@@ -54,6 +83,9 @@ async function startBot() {
     performanceMonitor = new PerformanceMonitor(telegramService);
     riskManager = new RiskManager(telegramService);
     articleScraper = new BithumbArticleScraper(telegramService);
+
+    // Initialiser la file d'attente pour les listings avec délais
+    listingQueue = new ListingQueue(telegramService, undefined, riskManager, performanceMonitor);
 
     // Connecter le service Telegram au trader
     const { setTelegramService, setRiskManager } = await import('./trader');
@@ -81,6 +113,11 @@ async function startBot() {
       // Ne pas arrêter le bot, continuer en mode surveillance
     } else {
       await telegramService.sendBotStatus("Trader initialisé", "Hyperliquid configuré avec succès");
+      
+      // Mettre à jour la file d'attente avec le trader
+      if (listingQueue) {
+        listingQueue = new ListingQueue(telegramService, hyperliquidTrader, riskManager, performanceMonitor);
+      }
 
       // Vérifier la balance avec retry seulement si le trader est initialisé
       try {
@@ -137,87 +174,34 @@ async function startBot() {
       // Notification Telegram
       await telegramService?.sendNewListing(symbol, metadata);
 
-      // Vérifier si le perpétuel existe sur Hyperliquid avec retry seulement si le trader est initialisé
-      if (traderInitialized && hyperliquidTrader) {
-        let hasPerpHyperliquid = false;
-        try {
-          if (retryManager) {
-            hasPerpHyperliquid = await retryManager.executeWithRetry(
-              () => hyperliquidTrader!.hasPerp(symbol),
-              `Vérification perp ${symbol}`
-            );
-          } else {
-            const result = await hyperliquidTrader?.hasPerp(symbol);
-            hasPerpHyperliquid = result === true;
-          }
-        } catch (error) {
-          console.error(`❌ Erreur vérification perp ${symbol}:`, error);
-        }
+      // Déterminer la source du listing
+      let source: 'announcement' | 'websocket' | 'api' = 'api';
+      if (metadata?.source?.includes('Article') || metadata?.source?.includes('announcement')) {
+        source = 'announcement';
+      } else if (metadata?.source?.includes('WebSocket')) {
+        source = 'websocket';
+      }
 
-        if (hasPerpHyperliquid) {
-          console.log(`✅ Perp détecté sur Hyperliquid ! Vérification des risques...`);
-          
-          // Vérification des risques avant le trade
-          if (riskManager) {
-            const riskCheck = await riskManager.canTrade(symbol, 400); // Montant par défaut
-            
-            if (!riskCheck.allowed) {
-              console.log(`🛡️ Trade bloqué: ${riskCheck.reason}`);
-              await telegramService?.sendBotStatus("Trade bloqué", `${symbol}: ${riskCheck.reason}`);
-              return; // Arrêter ici
-            }
-            
-            console.log(`🛡️ Vérification risque: AUTORISÉ`);
-          }
-          
-          await telegramService?.sendBotStatus("Trade Hyperliquid", `Ouverture position sur ${symbol}`);
-          
-          const tradeStart = Date.now();
-          try {
-            if (retryManager) {
-              await retryManager.executeTradeWithRetry(
-                () => executeTrade(symbol, 'Hyperliquid'),
-                symbol,
-                'Hyperliquid'
-              );
-            
-              // Enregistrer le trade réussi
-              if (performanceMonitor) {
-                performanceMonitor.recordTrade(
-                  symbol,
-                  'Hyperliquid',
-                  Date.now() - detectionStart,
-                  Date.now() - tradeStart,
-                  true
-                );
-              }
-              
-              // Enregistrer dans le risk manager
-              if (riskManager) {
-                await riskManager.recordTrade(symbol, 400);
-              }
-            } else {
-              await executeTrade(symbol, 'Hyperliquid');
-            }
-          } catch (error) {
-            console.error(`❌ Erreur trade ${symbol}:`, error);
-            
-            // Enregistrer le trade échoué
-            if (performanceMonitor) {
-              performanceMonitor.recordTrade(
-                symbol,
-                'Hyperliquid',
-                Date.now() - detectionStart,
-                Date.now() - tradeStart,
-                false,
-                undefined,
-                error instanceof Error ? error.message : String(error)
-              );
-            }
+      // Ajouter à la file d'attente au lieu de vérifier immédiatement
+      if (listingQueue && traderInitialized) {
+        console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
+        listingQueue.addListing(symbol, metadata, source);
+        
+        // Envoyer notification de file d'attente
+        await telegramService?.sendQueuedListing(symbol, metadata, source);
+        
+        // Vérification immédiate pour les WebSockets (déjà listés)
+        if (source === 'websocket') {
+          console.log(`🔍 Vérification immédiate pour ${symbol} (WebSocket)`);
+          const hasPerp = await hyperliquidTrader?.hasPerp(symbol);
+          if (hasPerp) {
+            console.log(`✅ ${symbol} immédiatement disponible sur Hyperliquid !`);
+            // Le trade sera géré par la file d'attente
+          } else {
+            console.log(`⏳ ${symbol} pas encore disponible, surveillance en cours...`);
           }
         } else {
-          console.log(`❌ Perp non disponible sur Hyperliquid pour ${symbol}`);
-          await telegramService?.sendBotStatus("Aucun perp trouvé", `${symbol} non disponible sur Hyperliquid`);
+          console.log(`⏳ ${symbol} ajouté à la file d'attente pour surveillance continue...`);
         }
       } else {
         console.log(`📊 Listing détecté: ${symbol} (Mode surveillance uniquement - Hyperliquid non configuré)`);
@@ -240,14 +224,47 @@ async function startBot() {
       await riskManager.sendDailyRiskReport();
     }
 
+    // Notification de démarrage réussi
+    await telegramService.sendBotStatus("✅ BOT OPÉRATIONNEL", "Bot démarré avec succès - Surveillance active");
+
+    // Rapport périodique de la file d'attente
+    setInterval(() => {
+      if (listingQueue) {
+        const status = listingQueue.getQueueStatus();
+        if (status.total > 0) {
+          console.log(`📋 File d'attente: ${status.total} tokens (${status.announcements} annonces, ${status.websockets} WebSocket, ${status.apis} API)`);
+        }
+      }
+    }, 300000); // Toutes les 5 minutes
+
   } catch (error) {
     console.error('❌ Erreur lors du démarrage du bot:', error);
-    await telegramService?.sendError('Erreur de démarrage', error instanceof Error ? error.message : 'Erreur inconnue');
-    // Ne pas arrêter le processus, laisser le health check continuer
-    console.log('🔄 Redémarrage automatique dans 30 secondes...');
+    
+    // Envoyer un message d'erreur seulement si le service Telegram est disponible
+    if (telegramService) {
+      try {
+        await telegramService.sendError('Erreur de démarrage', error instanceof Error ? error.message : 'Erreur inconnue');
+      } catch (telegramError) {
+        console.error('❌ Impossible d\'envoyer l\'erreur via Telegram:', telegramError);
+      }
+    }
+    
+    // Attendre plus longtemps avant le redémarrage pour éviter les boucles
+    const restartDelay = 60000; // 1 minute au lieu de 30 secondes
+    console.log(`🔄 Redémarrage automatique dans ${restartDelay/1000} secondes...`);
+    
+    // Notification de redémarrage
+    if (telegramService) {
+      try {
+        await telegramService.sendBotStatus("🔄 REDÉMARRAGE", `Bot redémarre automatiquement dans ${restartDelay/1000} secondes`);
+      } catch (telegramError) {
+        console.error('❌ Impossible d\'envoyer la notification de redémarrage:', telegramError);
+      }
+    }
+    
     setTimeout(() => {
       startBot();
-    }, 30000);
+    }, restartDelay);
   }
 }
 
@@ -255,7 +272,10 @@ async function startBot() {
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n🛑 Arrêt du bot (${signal})...`);
   try {
-    await telegramService?.sendBotStatus("Arrêt", `Bot arrêté (${signal})`);
+    // Notification d'arrêt
+    if (telegramService) {
+      await telegramService.sendBotStatus("🛑 BOT ARRÊTÉ", `Bot arrêté par signal: ${signal}`);
+    }
     
     // Arrêter tous les modules
     if (listingSource) {
@@ -267,6 +287,11 @@ const gracefulShutdown = async (signal: string) => {
     // }
     if (articleScraper) {
       await articleScraper.stopMonitoring();
+    }
+    
+    // Arrêter la file d'attente
+    if (listingQueue) {
+      listingQueue.stopMonitoring();
     }
     
     // Envoyer rapport final
@@ -288,13 +313,17 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 // Gestion des erreurs non capturées
 process.on('uncaughtException', async (error) => {
   console.error('❌ Erreur non capturée:', error);
-  await telegramService?.sendError('Erreur fatale', error.message);
+  if (telegramService) {
+    await telegramService.sendBotStatus("🚨 ERREUR FATALE", `Bot arrêté par erreur: ${error.message}`);
+  }
   process.exit(1);
 });
 
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('❌ Promesse rejetée non gérée:', reason);
-  await telegramService?.sendError('Promesse rejetée', String(reason));
+  if (telegramService) {
+    await telegramService.sendBotStatus("🚨 ERREUR PROMESSE", `Bot arrêté par promesse rejetée: ${String(reason)}`);
+  }
   process.exit(1);
 });
 

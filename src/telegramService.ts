@@ -6,6 +6,18 @@ export class TelegramService {
   private chatId: string;
   private enabled: boolean;
   private baseUrl: string;
+  private messageWhitelist: Set<string> = new Set([
+    'NOUVEAU LISTING DÉTECTÉ',
+    'STATUT DU BOT',
+    'MISE À JOUR BALANCE',
+    'ERREUR BOT',
+    'EXÉCUTION DE TRADE',
+    'Rapport Risque Quotidien',
+    'Rapport de Risque',
+    'DIAGNOSTIC SYSTÈME',
+    'TOKEN AJOUTÉ À LA FILE D\'ATTENTE',
+    'Test de diagnostic Telegram'
+  ]);
 
   constructor() {
     this.botToken = TELEGRAM_CONFIG.botToken;
@@ -21,7 +33,45 @@ export class TelegramService {
     }
   }
 
+  private validateMessage(message: string): boolean {
+    // Vérifier si le message contient des mots-clés suspects
+    const suspiciousKeywords = [
+      'casino', 'bonus', 'promo', 'jetacas', 'welcome', 'deposit',
+      'withdrawal', 'gambling', 'bet', 'slot', 'poker'
+    ];
+    
+    const lowerMessage = message.toLowerCase();
+    for (const keyword of suspiciousKeywords) {
+      if (lowerMessage.includes(keyword)) {
+        console.warn(`🚨 Message suspect détecté avec mot-clé: ${keyword}`);
+        return false;
+      }
+    }
+    
+    // Vérifier si le message contient au moins un mot-clé autorisé
+    let hasWhitelistedContent = false;
+    for (const whitelisted of this.messageWhitelist) {
+      if (message.includes(whitelisted)) {
+        hasWhitelistedContent = true;
+        break;
+      }
+    }
+    
+    if (!hasWhitelistedContent) {
+      console.warn('🚨 Message non autorisé détecté');
+      return false;
+    }
+    
+    return true;
+  }
+
   async sendMessage(message: string): Promise<boolean> {
+    // Validation de sécurité
+    if (!this.validateMessage(message)) {
+      console.error('❌ Message rejeté par le système de sécurité');
+      return false;
+    }
+
     if (!this.enabled || !this.botToken || !this.chatId) {
       console.log('📱 [TELEGRAM] ' + message);
       return false;
@@ -52,15 +102,79 @@ export class TelegramService {
   }
 
   async sendNewListing(symbol: string, metadata?: any): Promise<boolean> {
+    // Validation du symbole
+    if (!symbol || symbol.length < 2 || symbol.toUpperCase().includes('TEST')) {
+      console.warn(`⚠️ Symbole invalide ignoré: ${symbol}`);
+      return false;
+    }
+
+    // Récupérer les vraies données de marché
+    let realPrice = 'N/A';
+    let realVolume = 'N/A';
+    
+    try {
+      // Récupérer les données depuis Bithumb API
+      const response = await axios.get(`https://api.bithumb.com/public/ticker/${symbol}_KRW`, {
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+
+      if (response.data && response.data.data) {
+        const tickerData = response.data.data;
+        realPrice = tickerData.closing_price || 'N/A';
+        realVolume = tickerData.acc_trade_value_24H || 'N/A';
+        
+        // Formater les données
+        if (realPrice !== 'N/A') {
+          const priceNum = parseFloat(realPrice);
+          realPrice = `$${priceNum.toFixed(6)}`;
+        }
+        
+        if (realVolume !== 'N/A') {
+          const volumeNum = parseFloat(realVolume);
+          if (volumeNum >= 1000000) {
+            realVolume = `$${(volumeNum / 1000000).toFixed(2)}M`;
+          } else if (volumeNum >= 1000) {
+            realVolume = `$${(volumeNum / 1000).toFixed(2)}K`;
+          } else {
+            realVolume = `$${volumeNum.toFixed(2)}`;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ Impossible de récupérer les données pour ${symbol}:`, error instanceof Error ? error.message : 'Erreur inconnue');
+      // Utiliser les données du WebSocket si disponibles
+      if (metadata?.price) {
+        const priceNum = parseFloat(metadata.price);
+        realPrice = `$${priceNum.toFixed(6)}`;
+      }
+      if (metadata?.volume) {
+        const volumeNum = parseFloat(metadata.volume);
+        if (volumeNum >= 1000000) {
+          realVolume = `$${(volumeNum / 1000000).toFixed(2)}M`;
+        } else if (volumeNum >= 1000) {
+          realVolume = `$${(volumeNum / 1000).toFixed(2)}K`;
+        } else {
+          realVolume = `$${volumeNum.toFixed(2)}`;
+        }
+      }
+    }
+
     const message = `
 🆕 <b>NOUVEAU LISTING DÉTECTÉ !</b>
 
-💰 <b>Symbole :</b> ${symbol}
-📰 <b>Titre :</b> ${metadata?.title || 'N/A'}
-🔗 <b>URL :</b> ${metadata?.url || 'N/A'}
-⏰ <b>Heure :</b> ${new Date().toLocaleString()}
+📊 <b>Token:</b> ${symbol}
+🏪 <b>Exchange:</b> ${metadata?.source || 'Bithumb WebSocket'}
+💰 <b>Prix:</b> ${realPrice}
+📈 <b>Volume 24h:</b> ${realVolume}
+⏰ <b>Détecté:</b> ${new Date().toLocaleString()}
 
-🚀 <b>Bot en cours de vérification des exchanges...</b>
+🔗 <b>Voir sur Bithumb</b> (https://bithumb.com/trade/${symbol}_KRW)
+📊 <b>Graphique</b> (https://bithumb.com/chart/${symbol}_KRW)
+
+🤖 <b>Mode:</b> Surveillance uniquement
     `.trim();
 
     return this.sendMessage(message);
@@ -112,6 +226,32 @@ ${context ? `📍 <b>Contexte :</b> ${context}` : ''}
 💵 <b>Disponible :</b> ${balance.available} USDT
 💵 <b>Total :</b> ${balance.total} USDT
 ⏰ <b>Heure :</b> ${new Date().toLocaleString()}
+    `.trim();
+
+    return this.sendMessage(message);
+  }
+
+  async sendQueuedListing(symbol: string, metadata?: any, source?: string): Promise<boolean> {
+    const sourceText = source === 'announcement' ? 'Annonce Bithumb' : 
+                      source === 'websocket' ? 'WebSocket Bithumb' : 
+                      'API REST';
+    
+    const maxWaitTime = source === 'announcement' ? '4h' : 
+                       source === 'websocket' ? '2h' : 
+                       '30min';
+
+    const message = `
+📋 <b>TOKEN AJOUTÉ À LA FILE D'ATTENTE</b>
+
+📊 <b>Token:</b> ${symbol}
+🏪 <b>Source:</b> ${sourceText}
+⏰ <b>Détecté:</b> ${new Date().toLocaleString()}
+⏳ <b>Surveillance:</b> ${maxWaitTime} maximum
+
+🔄 <b>Le bot surveille Hyperliquid...</b>
+📊 <b>Vérification toutes les 45-60 secondes</b>
+
+🎯 <b>Objectif:</b> Frontrunning dès disponibilité
     `.trim();
 
     return this.sendMessage(message);

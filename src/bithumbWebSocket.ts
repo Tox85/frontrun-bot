@@ -248,9 +248,14 @@ export class BithumbWebSocket {
               source: 'Bithumb WebSocket',
               timestamp: Date.now(),
               symbol: symbol,
-              price: content.closePrice || '0',
-              volume: content.acc_trade_value_24H || '0',
-              type: 'websocket'
+              price: content.closePrice || content.closing_price || '0',
+              volume: content.acc_trade_value_24H || content.acc_trade_volume_24H || '0',
+              type: 'websocket',
+              // Données supplémentaires disponibles
+              highPrice: content.max_price || '0',
+              lowPrice: content.min_price || '0',
+              openPrice: content.opening_price || '0',
+              tradeCount: content.acc_trade_count_24H || '0'
             });
           }
         }

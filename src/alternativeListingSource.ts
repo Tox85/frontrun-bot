@@ -77,11 +77,23 @@ export class AlternativeListingSource implements ListingSource {
       const markets = response.data.filter((market: any) => 
         market.market.startsWith('KRW-') && 
         !market.market.includes('USDT') && 
-        !market.market.includes('BTC')
+        !market.market.includes('BTC') &&
+        !market.market.includes('TEST') && // Exclure les tokens de test
+        market.market.length > 4 // Exclure les tokens trop courts
       );
 
       const tokens = markets.map((market: any) => market.market.replace('KRW-', ''));
-      return tokens;
+      
+      // Filtrer les tokens suspects
+      const filteredTokens = tokens.filter((token: string) => {
+        const upperToken = token.toUpperCase();
+        return !upperToken.includes('TEST') && 
+               !upperToken.includes('DEMO') && 
+               !upperToken.includes('FAKE') &&
+               token.length >= 2; // Tokens d'au moins 2 caractères
+      });
+      
+      return filteredTokens;
     } catch (error) {
       // Log seulement les erreurs critiques (pas les timeouts normaux)
       if (error instanceof Error && !error.message.includes('timeout') && !error.message.includes('429')) {
@@ -173,11 +185,34 @@ export class AlternativeListingSource implements ListingSource {
             this.knownTokens.add(token);
             newTokensFound++;
             
+            // Récupérer les vraies données Upbit
+            let upbitPrice = 'N/A';
+            let upbitVolume = 'N/A';
+            
+            try {
+              const upbitResponse = await axios.get(`https://api.upbit.com/v1/ticker?markets=KRW-${token}`, {
+                timeout: 3000,
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+              });
+              
+              if (upbitResponse.data && upbitResponse.data[0]) {
+                const tickerData = upbitResponse.data[0];
+                upbitPrice = tickerData.trade_price?.toString() || 'N/A';
+                upbitVolume = tickerData.acc_trade_price_24h?.toString() || 'N/A';
+              }
+            } catch (error) {
+              console.warn(`⚠️ Impossible de récupérer les données Upbit pour ${token}`);
+            }
+            
             const listingMetadata: ListingMetadata = {
               title: `🆕 NOUVEAU LISTING UPBIT : ${token}`,
               url: `https://upbit.com/exchange?code=CRIX.UPBIT.KRW-${token}`,
               source: 'Upbit REST API',
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              price: upbitPrice,
+              volume: upbitVolume
             };
             
             // Log seulement les nouveaux tokens
