@@ -12,11 +12,18 @@ export class TelegramService {
     this.chatId = TELEGRAM_CONFIG.chatId;
     this.enabled = TELEGRAM_CONFIG.enabled;
     this.baseUrl = `https://api.telegram.org/bot${this.botToken}`;
+    
+    // Validation de la configuration
+    if (!this.enabled || !this.botToken || !this.chatId) {
+      console.log('⚠️ Telegram désactivé ou mal configuré - Mode console uniquement');
+    } else {
+      console.log('✅ Service Telegram configuré');
+    }
   }
 
   async sendMessage(message: string): Promise<boolean> {
     if (!this.enabled || !this.botToken || !this.chatId) {
-      console.log('⚠️ Telegram désactivé ou mal configuré');
+      console.log('📱 [TELEGRAM] ' + message);
       return false;
     }
 
@@ -25,6 +32,8 @@ export class TelegramService {
         chat_id: this.chatId,
         text: message,
         parse_mode: 'HTML'
+      }, {
+        timeout: 10000 // Timeout de 10 secondes
       });
 
       if (response.data.ok) {
@@ -36,6 +45,8 @@ export class TelegramService {
       }
     } catch (error) {
       console.error('❌ Erreur envoi Telegram:', error);
+      // En cas d'erreur, afficher le message dans la console
+      console.log('📱 [TELEGRAM] ' + message);
       return false;
     }
   }

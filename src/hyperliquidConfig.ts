@@ -20,7 +20,7 @@ export const HYPERLIQUID_CONFIG = {
 };
 
 export function validateHyperliquidConfig() {
-  console.log('✅ Configuration Hyperliquid validée :');
+  console.log('🔧 Validation de la configuration Hyperliquid :');
   console.log(`  - Activé: ${HYPERLIQUID_CONFIG.enabled}`);
   console.log(`  - Testnet: ${HYPERLIQUID_CONFIG.isTestnet}`);
   console.log(`  - Wallet: ${HYPERLIQUID_CONFIG.walletAddress ? HYPERLIQUID_CONFIG.walletAddress.substring(0, 8) + '...' : 'NON CONFIGURÉ'}`);
@@ -28,10 +28,21 @@ export function validateHyperliquidConfig() {
   console.log(`  - WebSocket URL: ${HYPERLIQUID_CONFIG.wsUrl}`);
   
   // Vérifications d'authentification
+  if (!HYPERLIQUID_CONFIG.enabled) {
+    console.log('ℹ️ Hyperliquid désactivé - Mode surveillance uniquement');
+    return;
+  }
+  
   if (!HYPERLIQUID_CONFIG.walletAddress) {
     console.warn('⚠️ HYPERLIQUID_WALLET_ADDRESS non configuré - Mode simulation activé');
   }
   if (!HYPERLIQUID_CONFIG.privateKey) {
     console.warn('⚠️ HYPERLIQUID_PRIVATE_KEY non configuré - Mode simulation activé');
+  }
+  
+  if (HYPERLIQUID_CONFIG.walletAddress && HYPERLIQUID_CONFIG.privateKey) {
+    console.log('✅ Configuration Hyperliquid complète - Mode trading activé');
+  } else {
+    console.log('⚠️ Configuration Hyperliquid partielle - Mode simulation');
   }
 } 
