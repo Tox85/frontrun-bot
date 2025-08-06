@@ -28,8 +28,22 @@ export class TelegramService {
     // Validation de la configuration
     if (!this.enabled || !this.botToken || !this.chatId) {
       console.log('⚠️ Telegram désactivé ou mal configuré - Mode console uniquement');
+      console.log('🔍 Debug Telegram config:', {
+        enabled: this.enabled,
+        hasToken: !!this.botToken,
+        hasChatId: !!this.chatId,
+        tokenLength: this.botToken?.length || 0,
+        chatIdLength: this.chatId?.length || 0
+      });
     } else {
       console.log('✅ Service Telegram configuré');
+      console.log('🔍 Debug Telegram config:', {
+        enabled: this.enabled,
+        hasToken: !!this.botToken,
+        hasChatId: !!this.chatId,
+        tokenLength: this.botToken?.length || 0,
+        chatIdLength: this.chatId?.length || 0
+      });
     }
   }
 
@@ -37,7 +51,12 @@ export class TelegramService {
     // Vérifier si le message contient des mots-clés suspects
     const suspiciousKeywords = [
       'casino', 'bonus', 'promo', 'jetacas', 'welcome', 'deposit',
-      'withdrawal', 'gambling', 'bet', 'slot', 'poker'
+      'withdrawal', 'gambling', 'bet', 'slot', 'poker', 'live',
+      'launched', 'brand-new', 'online casino', 'generous launch',
+      'credited instantly', 'promo code', 'no strings attached',
+      'no id required', 'instant bonus', 'top-tier providers',
+      '24/7 support', 'minimum deposit', 'licensed platform',
+      'fair payouts', 'secure withdrawals', 'e-wallets'
     ];
     
     const lowerMessage = message.toLowerCase();
@@ -102,79 +121,19 @@ export class TelegramService {
   }
 
   async sendNewListing(symbol: string, metadata?: any): Promise<boolean> {
-    // Validation du symbole
-    if (!symbol || symbol.length < 2 || symbol.toUpperCase().includes('TEST')) {
-      console.warn(`⚠️ Symbole invalide ignoré: ${symbol}`);
-      return false;
-    }
-
-    // Récupérer les vraies données de marché
-    let realPrice = 'N/A';
-    let realVolume = 'N/A';
+    const exchange = metadata?.exchange || metadata?.source || 'Exchange inconnu';
+    const price = metadata?.price || 'N/A';
+    const volume = metadata?.volume || 'N/A';
+    const url = metadata?.url || '';
     
-    try {
-      // Récupérer les données depuis Bithumb API
-      const response = await axios.get(`https://api.bithumb.com/public/ticker/${symbol}_KRW`, {
-        timeout: 5000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-      });
-
-      if (response.data && response.data.data) {
-        const tickerData = response.data.data;
-        realPrice = tickerData.closing_price || 'N/A';
-        realVolume = tickerData.acc_trade_value_24H || 'N/A';
-        
-        // Formater les données
-        if (realPrice !== 'N/A') {
-          const priceNum = parseFloat(realPrice);
-          realPrice = `$${priceNum.toFixed(6)}`;
-        }
-        
-        if (realVolume !== 'N/A') {
-          const volumeNum = parseFloat(realVolume);
-          if (volumeNum >= 1000000) {
-            realVolume = `$${(volumeNum / 1000000).toFixed(2)}M`;
-          } else if (volumeNum >= 1000) {
-            realVolume = `$${(volumeNum / 1000).toFixed(2)}K`;
-          } else {
-            realVolume = `$${volumeNum.toFixed(2)}`;
-          }
-        }
-      }
-    } catch (error) {
-      console.warn(`⚠️ Impossible de récupérer les données pour ${symbol}:`, error instanceof Error ? error.message : 'Erreur inconnue');
-      // Utiliser les données du WebSocket si disponibles
-      if (metadata?.price) {
-        const priceNum = parseFloat(metadata.price);
-        realPrice = `$${priceNum.toFixed(6)}`;
-      }
-      if (metadata?.volume) {
-        const volumeNum = parseFloat(metadata.volume);
-        if (volumeNum >= 1000000) {
-          realVolume = `$${(volumeNum / 1000000).toFixed(2)}M`;
-        } else if (volumeNum >= 1000) {
-          realVolume = `$${(volumeNum / 1000).toFixed(2)}K`;
-        } else {
-          realVolume = `$${volumeNum.toFixed(2)}`;
-        }
-      }
-    }
-
     const message = `
-🆕 <b>NOUVEAU LISTING DÉTECTÉ !</b>
+Nouveau token détecté
 
-📊 <b>Token:</b> ${symbol}
-🏪 <b>Exchange:</b> ${metadata?.source || 'Bithumb WebSocket'}
-💰 <b>Prix:</b> ${realPrice}
-📈 <b>Volume 24h:</b> ${realVolume}
-⏰ <b>Détecté:</b> ${new Date().toLocaleString()}
-
-🔗 <b>Voir sur Bithumb</b> (https://bithumb.com/trade/${symbol}_KRW)
-📊 <b>Graphique</b> (https://bithumb.com/chart/${symbol}_KRW)
-
-🤖 <b>Mode:</b> Surveillance uniquement
+Token: ${symbol}
+Exchange: ${exchange}
+Prix: ${price}
+Volume: ${volume}
+${url ? `Lien: ${url}` : ''}
     `.trim();
 
     return this.sendMessage(message);

@@ -75,7 +75,7 @@ async function startBot() {
     
     // Initialiser le service Telegram
     telegramService = new TelegramService();
-    await telegramService.sendBotStatus("Démarrage", "Initialisation du bot...");
+    // await telegramService.sendBotStatus("Démarrage", "Initialisation du bot...");
 
     // Initialiser les nouveaux modules
     console.log("📊 Initialisation des modules avancés...");
@@ -109,10 +109,10 @@ async function startBot() {
     
     if (!traderInitialized) {
       console.warn("⚠️ Hyperliquid non initialisé - Mode surveillance uniquement");
-      await telegramService.sendBotStatus("Mode surveillance", "Hyperliquid non configuré - Surveillance active uniquement");
+      // await telegramService.sendBotStatus("Mode surveillance", "Hyperliquid non configuré - Surveillance active uniquement");
       // Ne pas arrêter le bot, continuer en mode surveillance
     } else {
-      await telegramService.sendBotStatus("Trader initialisé", "Hyperliquid configuré avec succès");
+      // await telegramService.sendBotStatus("Trader initialisé", "Hyperliquid configuré avec succès");
       
       // Mettre à jour la file d'attente avec le trader
       if (listingQueue) {
@@ -130,16 +130,16 @@ async function startBot() {
         } else {
           balance = await hyperliquidTrader.checkBalance();
         }
-        await telegramService.sendBalanceUpdate(balance);
+        // await telegramService.sendBalanceUpdate(balance);
       } catch (error) {
         console.warn("⚠️ Impossible de vérifier la balance, mais le bot continue...");
-        await telegramService.sendBotStatus("Balance non disponible", "Mode dégradé - trading désactivé");
+        // await telegramService.sendBotStatus("Balance non disponible", "Mode dégradé - trading désactivé");
       }
     }
 
     // Initialiser la surveillance des listings
     listingSource = new AlternativeListingSource();
-    await telegramService.sendBotStatus("Surveillance activée", "Détection des nouveaux listings en cours...");
+    // await telegramService.sendBotStatus("Surveillance activée", "Détection des nouveaux listings en cours...");
 
     // Initialiser le WebSocket Hyperliquid seulement si configuré
     if (traderInitialized) {
@@ -214,18 +214,18 @@ async function startBot() {
 
     // Notification de démarrage réussi
     const statusMessage = traderInitialized 
-      ? "Bot opérationnel - Surveillance active - prêt à détecter les nouveaux listings"
-      : "Bot opérationnel - Mode surveillance uniquement (Hyperliquid non configuré)";
+      ? "Bot en marche et prêt à détecter les nouveaux listings"
+      : "Bot en marche - Mode surveillance uniquement";
     
     await telegramService.sendBotStatus("Bot opérationnel", statusMessage);
     
     // Envoyer rapport de risque initial
     if (riskManager) {
-      await riskManager.sendDailyRiskReport();
+      // await riskManager.sendDailyRiskReport();
     }
 
     // Notification de démarrage réussi
-    await telegramService.sendBotStatus("✅ BOT OPÉRATIONNEL", "Bot démarré avec succès - Surveillance active");
+    // await telegramService.sendBotStatus("✅ BOT OPÉRATIONNEL", "Bot démarré avec succès - Surveillance active");
 
     // Rapport périodique de la file d'attente
     setInterval(() => {
