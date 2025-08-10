@@ -6,18 +6,12 @@ export class TelegramService {
   private chatId: string;
   private enabled: boolean;
   private baseUrl: string;
-  private messageWhitelist: Set<string> = new Set([
-    'NOUVEAU LISTING DÉTECTÉ',
-    'STATUT DU BOT',
-    'MISE À JOUR BALANCE',
-    'ERREUR BOT',
-    'EXÉCUTION DE TRADE',
-    'Rapport Risque Quotidien',
-    'Rapport de Risque',
-    'DIAGNOSTIC SYSTÈME',
-    'TOKEN AJOUTÉ À LA FILE D\'ATTENTE',
-    'Test de diagnostic Telegram'
-  ]);
+  
+  // Messages autorisés uniquement
+  private readonly ALLOWED_MESSAGE_TYPES = {
+    BOT_STATUS: 'BOT_STATUS',
+    NEW_LISTING: 'NEW_LISTING'
+  };
 
   constructor() {
     this.botToken = TELEGRAM_CONFIG.botToken;
@@ -28,65 +22,49 @@ export class TelegramService {
     // Validation de la configuration
     if (!this.enabled || !this.botToken || !this.chatId) {
       console.log('⚠️ Telegram désactivé ou mal configuré - Mode console uniquement');
-      console.log('🔍 Debug Telegram config:', {
-        enabled: this.enabled,
-        hasToken: !!this.botToken,
-        hasChatId: !!this.chatId,
-        tokenLength: this.botToken?.length || 0,
-        chatIdLength: this.chatId?.length || 0
-      });
     } else {
-      console.log('✅ Service Telegram configuré');
-      console.log('🔍 Debug Telegram config:', {
-        enabled: this.enabled,
-        hasToken: !!this.botToken,
-        hasChatId: !!this.chatId,
-        tokenLength: this.botToken?.length || 0,
-        chatIdLength: this.chatId?.length || 0
-      });
+      console.log('✅ Service Telegram sécurisé configuré');
     }
   }
 
-  private validateMessage(message: string): boolean {
-    // Vérifier si le message contient des mots-clés suspects
-    const suspiciousKeywords = [
+  /**
+   * Validation stricte des messages - seuls les messages autorisés sont acceptés
+   */
+  private validateMessage(message: string, messageType: string): boolean {
+    // Vérifier que le type de message est autorisé
+    if (!Object.values(this.ALLOWED_MESSAGE_TYPES).includes(messageType)) {
+      console.error('❌ Type de message non autorisé:', messageType);
+      return false;
+    }
+
+    // Liste de mots-clés interdits (casino, gambling, etc.)
+    const forbiddenKeywords = [
       'casino', 'bonus', 'promo', 'jetacas', 'welcome', 'deposit',
       'withdrawal', 'gambling', 'bet', 'slot', 'poker', 'live',
       'launched', 'brand-new', 'online casino', 'generous launch',
       'credited instantly', 'promo code', 'no strings attached',
       'no id required', 'instant bonus', 'top-tier providers',
       '24/7 support', 'minimum deposit', 'licensed platform',
-      'fair payouts', 'secure withdrawals', 'e-wallets'
+      'fair payouts', 'secure withdrawals', 'e-wallets', 'etacas'
     ];
     
     const lowerMessage = message.toLowerCase();
-    for (const keyword of suspiciousKeywords) {
+    for (const keyword of forbiddenKeywords) {
       if (lowerMessage.includes(keyword)) {
-        console.warn(`🚨 Message suspect détecté avec mot-clé: ${keyword}`);
+        console.error(`🚨 Message rejeté - mot-clé interdit détecté: ${keyword}`);
         return false;
       }
-    }
-    
-    // Vérifier si le message contient au moins un mot-clé autorisé
-    let hasWhitelistedContent = false;
-    for (const whitelisted of this.messageWhitelist) {
-      if (message.includes(whitelisted)) {
-        hasWhitelistedContent = true;
-        break;
-      }
-    }
-    
-    if (!hasWhitelistedContent) {
-      console.warn('🚨 Message non autorisé détecté');
-      return false;
     }
     
     return true;
   }
 
-  async sendMessage(message: string): Promise<boolean> {
-    // Validation de sécurité
-    if (!this.validateMessage(message)) {
+  /**
+   * Envoi sécurisé de message
+   */
+  private async sendSecureMessage(message: string, messageType: string): Promise<boolean> {
+    // Validation stricte
+    if (!this.validateMessage(message, messageType)) {
       console.error('❌ Message rejeté par le système de sécurité');
       return false;
     }
@@ -102,11 +80,11 @@ export class TelegramService {
         text: message,
         parse_mode: 'HTML'
       }, {
-        timeout: 10000 // Timeout de 10 secondes
+        timeout: 10000
       });
 
       if (response.data.ok) {
-        console.log('✅ Message Telegram envoyé');
+        console.log('✅ Message Telegram sécurisé envoyé');
         return true;
       } else {
         console.error('❌ Erreur Telegram:', response.data);
@@ -114,105 +92,138 @@ export class TelegramService {
       }
     } catch (error) {
       console.error('❌ Erreur envoi Telegram:', error);
-      // En cas d'erreur, afficher le message dans la console
       console.log('📱 [TELEGRAM] ' + message);
       return false;
     }
   }
 
-  async sendNewListing(symbol: string, metadata?: any): Promise<boolean> {
-    const exchange = metadata?.exchange || metadata?.source || 'Exchange inconnu';
-    const price = metadata?.price || 'N/A';
-    const volume = metadata?.volume || 'N/A';
-    const url = metadata?.url || '';
+  /**
+   * Message de démarrage du bot
+   */
+  async sendBotReady(balance?: number): Promise<boolean> {
+    const balanceText = balance ? `${balance} USDC` : 'N/A USDC';
+    const message = `🤖 <b>Frontrun Bot</b> démarré avec succès!\n\n` +
+                   `📊 Mode: ${process.env.DRY_RUN === '1' ? 'DRY RUN' : 'PRODUCTION'}\n` +
+                   `💰 Balance HL: ${balanceText}\n` +
+                   `⚙️ Risk/Trade: ${process.env.POSITION_SIZE_USDC || '400'} USDC`;
     
-    const message = `
-Nouveau token détecté
-
-Token: ${symbol}
-Exchange: ${exchange}
-Prix: ${price}
-Volume: ${volume}
-${url ? `Lien: ${url}` : ''}
-    `.trim();
-
-    return this.sendMessage(message);
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.BOT_STATUS);
   }
 
-  async sendTradeExecution(symbol: string, platform: string, success: boolean, details?: any): Promise<boolean> {
-    const status = success ? '✅' : '❌';
-    const message = `
-${status} <b>EXÉCUTION DE TRADE</b>
-
-💰 <b>Symbole :</b> ${symbol}
-🏢 <b>Platform :</b> ${platform}
-📊 <b>Status :</b> ${success ? 'SUCCÈS' : 'ÉCHEC'}
-${details ? `📋 <b>Détails :</b> ${details}` : ''}
-⏰ <b>Heure :</b> ${new Date().toLocaleString()}
-    `.trim();
-
-    return this.sendMessage(message);
-  }
-
-  async sendBotStatus(status: string, details?: string): Promise<boolean> {
-    const message = `
-🤖 <b>STATUT DU BOT</b>
-
-📊 <b>Status :</b> ${status}
-${details ? `📋 <b>Détails :</b> ${details}` : ''}
-⏰ <b>Heure :</b> ${new Date().toLocaleString()}
-    `.trim();
-
-    return this.sendMessage(message);
-  }
-
-  async sendError(error: string, context?: string): Promise<boolean> {
-    const message = `
-🚨 <b>ERREUR BOT</b>
-
-❌ <b>Erreur :</b> ${error}
-${context ? `📍 <b>Contexte :</b> ${context}` : ''}
-⏰ <b>Heure :</b> ${new Date().toLocaleString()}
-    `.trim();
-
-    return this.sendMessage(message);
-  }
-
-  async sendBalanceUpdate(balance: { available: number; total: number }): Promise<boolean> {
-    const message = `
-💰 <b>MISE À JOUR BALANCE</b>
-
-💵 <b>Disponible :</b> ${balance.available} USDT
-💵 <b>Total :</b> ${balance.total} USDT
-⏰ <b>Heure :</b> ${new Date().toLocaleString()}
-    `.trim();
-
-    return this.sendMessage(message);
-  }
-
-  async sendQueuedListing(symbol: string, metadata?: any, source?: string): Promise<boolean> {
-    const sourceText = source === 'announcement' ? 'Annonce Bithumb' : 
-                      source === 'websocket' ? 'WebSocket Bithumb' : 
-                      'API REST';
+  /**
+   * Notification nouveau listing
+   */
+  async sendNewListing(symbol: string, price?: string, exchange?: string): Promise<boolean> {
+    const message = `🆕 <b>Nouveau Listing Détecté!</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `🏢 Exchange: ${exchange || 'N/A'}\n` +
+                   `💰 Prix: ${price || 'N/A'}\n` +
+                   `⏰ Heure: ${new Date().toLocaleString()}`;
     
-    const maxWaitTime = source === 'announcement' ? '4h' : 
-                       source === 'websocket' ? '2h' : 
-                       '30min';
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
+  }
 
-    const message = `
-📋 <b>TOKEN AJOUTÉ À LA FILE D'ATTENTE</b>
+  /**
+   * Notification de début de trade
+   */
+  async sendTradeStart(
+    symbol: string,
+    venue: string,
+    price: number,
+    qty: number,
+    notional: number
+  ): Promise<boolean> {
+    const message = `🚀 <b>Trade Démarré</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `🏢 Venue: ${venue}\n` +
+                   `💰 Prix: $${price.toFixed(4)}\n` +
+                   `📊 Quantité: ${qty.toFixed(4)}\n` +
+                   `💵 Notional: $${notional.toFixed(2)}\n` +
+                   `🛡️ SL: 5% sous l'entrée\n` +
+                   `⏰ Fermeture: +3 minutes`;
+    
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
+  }
 
-📊 <b>Token:</b> ${symbol}
-🏪 <b>Source:</b> ${sourceText}
-⏰ <b>Détecté:</b> ${new Date().toLocaleString()}
-⏳ <b>Surveillance:</b> ${maxWaitTime} maximum
+  /**
+   * Notification de succès de trade
+   */
+  async sendTradeSuccess(
+    symbol: string,
+    venue: string,
+    price: number,
+    qty: number,
+    notional: number,
+    stopLossPrice: number
+  ): Promise<boolean> {
+    const message = `✅ <b>Trade Exécuté</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `🏢 Venue: ${venue}\n` +
+                   `💰 Prix d'entrée: $${price.toFixed(4)}\n` +
+                   `📊 Quantité: ${qty.toFixed(4)}\n` +
+                   `💵 Notional: $${notional.toFixed(2)}\n` +
+                   `🛡️ Stop Loss: $${stopLossPrice.toFixed(4)}\n` +
+                   `⏰ Fermeture automatique dans 3 minutes`;
+    
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
+  }
 
-🔄 <b>Le bot surveille Hyperliquid...</b>
-📊 <b>Vérification toutes les 45-60 secondes</b>
+  /**
+   * Notification de fermeture de position
+   */
+  async sendPositionClosed(
+    symbol: string,
+    venue: string,
+    reason: 'SL_HIT' | 'TIMEOUT_3MIN' | 'MANUAL'
+  ): Promise<boolean> {
+    const reasonText = {
+      'SL_HIT': '🛡️ Stop Loss touché',
+      'TIMEOUT_3MIN': '⏰ Fermeture automatique (3min)',
+      'MANUAL': '👤 Fermeture manuelle'
+    };
 
-🎯 <b>Objectif:</b> Frontrunning dès disponibilité
-    `.trim();
+    const message = `🔚 <b>Position Fermée</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `🏢 Venue: ${venue}\n` +
+                   `📋 Raison: ${reasonText[reason]}\n` +
+                   `⏰ Heure: ${new Date().toLocaleString()}`;
+    
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
+  }
 
-    return this.sendMessage(message);
+  /**
+   * Notification d'erreur de trade
+   */
+  async sendTradeError(symbol: string, error: string): Promise<boolean> {
+    const message = `❌ <b>Erreur Trade</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `🚨 Erreur: ${error}\n` +
+                   `⏰ Heure: ${new Date().toLocaleString()}`;
+    
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
+  }
+
+  /**
+   * Notification de balance insuffisante
+   */
+  async sendInsufficientBalance(symbol: string, balance: number): Promise<boolean> {
+    const message = `💰 <b>Balance Insuffisante</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `💵 Balance: ${balance.toFixed(2)} USDC\n` +
+                   `⚠️ Trade annulé - balance trop faible`;
+    
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
+  }
+
+  /**
+   * Notification de perp non trouvé
+   */
+  async sendNoPerpFound(symbol: string): Promise<boolean> {
+    const message = `🔍 <b>Perp Non Trouvé</b>\n\n` +
+                   `📈 Symbole: <code>${symbol}</code>\n` +
+                   `❌ Aucun perp disponible sur HL/Binance/Bybit\n` +
+                   `⏰ Heure: ${new Date().toLocaleString()}`;
+    
+    return this.sendSecureMessage(message, this.ALLOWED_MESSAGE_TYPES.NEW_LISTING);
   }
 } 

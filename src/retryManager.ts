@@ -40,10 +40,7 @@ export class RetryManager {
         console.error(`❌ ${operationName} - Tentative ${attempt} échouée:`, lastError.message);
         
         if (attempt === this.config.maxAttempts) {
-          await this.telegramService.sendError(
-            `Échec ${operationName}`,
-            `${lastError.message} (${attempt} tentatives)`
-          );
+          console.error(`❌ Échec ${operationName}: ${lastError.message} (${attempt} tentatives)`);
           throw lastError;
         }
         
@@ -70,10 +67,7 @@ export class RetryManager {
       return await this.executeWithRetry(primaryOperation, `${operationName} (Principal)`);
     } catch (error) {
       console.log(`🔄 Basculement vers fallback pour ${operationName}`);
-      await this.telegramService.sendBotStatus(
-        "Fallback activé",
-        `${operationName} - Utilisation du système de secours`
-      );
+      console.log(`🔄 Fallback activé: ${operationName} - Utilisation du système de secours`);
       
       return await this.executeWithRetry(fallbackOperation, `${operationName} (Fallback)`);
     }

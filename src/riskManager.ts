@@ -72,10 +72,7 @@ export class RiskManager {
     this.activePositions.add(symbol);
     
     // Notification
-    await this.telegramService.sendBotStatus(
-      "Trade enregistré",
-      `${symbol}: ${amount} USDC (${this.dailyTrades}/${this.config.maxDailyTrades} trades)`
-    );
+    console.log(`📊 Trade enregistré: ${symbol}: ${amount} USDC (${this.dailyTrades}/${this.config.maxDailyTrades} trades)`);
     
     console.log(`📊 Trade enregistré: ${symbol} - Daily: ${this.dailyTrades}/${this.config.maxDailyTrades}`);
   }
@@ -140,6 +137,6 @@ ${this.getRiskLevel()}
 
   async sendDailyRiskReport() {
     const report = await this.getRiskReport();
-    await this.telegramService.sendBotStatus("Rapport Risque Quotidien", report);
+    console.log("📊 Rapport Risque Quotidien:", report);
   }
 } 

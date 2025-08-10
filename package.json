@@ -5,19 +5,29 @@
   "main": "dist/main.js",
   "type": "commonjs",
   "scripts": {
+    "start": "ts-node src/main.ts",
+    "dev": "nodemon --exec ts-node src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "ts-node src/main.ts",
-    "postinstall": "npm run build",
-    "health-check": "curl -f http://localhost:$PORT/health || exit 1"
+    "test": "jest",
+    "test:all": "ts-node src/tests/runAllTests.ts",
+    "test:trading": "ts-node src/tests/tradingSystemTests.ts",
+    "test:integration": "ts-node src/tests/integrationTests.ts",
+    "probe:live": "ts-node src/metrics/latencyProbe.ts",
+    "probe:replay": "ts-node src/metrics/replayProbe.ts"
   },
-  "keywords": ["crypto", "trading", "bot", "frontrunning", "korean-listings"],
+  "keywords": [
+    "crypto",
+    "trading",
+    "bot",
+    "frontrunning",
+    "korean-listings"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@types/ws": "^8.18.1",
     "axios": "^1.11.0",
-    "ccxt": "^4.4.96",
+    "ccxt": "^4.4.99",
     "cheerio": "^1.1.2",
     "dotenv": "^17.2.1",
     "puppeteer": "^24.15.0",

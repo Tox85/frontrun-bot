@@ -120,7 +120,7 @@ export class PerformanceMonitor {
 ⏰ **Uptime:** ${this.formatUptime(metrics.uptime)}
     `;
 
-    await this.telegramService.sendBotStatus("Rapport Performance", report);
+          console.log("📊 Rapport Performance:", report);
   }
 
   async sendDailyReport() {
@@ -143,7 +143,7 @@ export class PerformanceMonitor {
 • Erreurs: ${metrics.failedTrades}
     `;
 
-    await this.telegramService.sendBotStatus("Rapport Quotidien", report);
+          console.log("📊 Rapport Quotidien:", report);
   }
 
   private formatUptime(ms: number): string {

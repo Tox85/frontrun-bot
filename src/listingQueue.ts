@@ -117,10 +117,7 @@ export class ListingQueue {
         const timeSinceDetection = now - listing.detectionTime;
         if (timeSinceDetection > listing.maxWaitTime) {
           console.log(`⏰ ${symbol} retiré de la file (temps d'attente dépassé: ${Math.floor(timeSinceDetection/60000)}min)`);
-          await this.telegramService.sendBotStatus(
-            "Listing abandonné", 
-            `${symbol} non disponible dans les délais (${Math.floor(listing.maxWaitTime/60000)}min max)`
-          );
+          console.log(`⏰ Listing abandonné: ${symbol} non disponible dans les délais (${Math.floor(listing.maxWaitTime/60000)}min max)`);
           this.queue.delete(symbol);
           continue;
         }
@@ -135,10 +132,7 @@ export class ListingQueue {
           
           if (timeSinceFirstListing > maxFrontrunTime) {
             console.log(`⏰ ${symbol} trop tard pour le frontrunning (${Math.floor(timeSinceFirstListing/60000)}min après premier listing)`);
-            await this.telegramService.sendBotStatus(
-              "Frontrunning abandonné", 
-              `${symbol} disponible mais trop tard (${Math.floor(timeSinceFirstListing/60000)}min après premier listing)`
-            );
+            console.log(`⏰ Frontrunning abandonné: ${symbol} disponible mais trop tard (${Math.floor(timeSinceFirstListing/60000)}min après premier listing)`);
             this.queue.delete(symbol);
             continue;
           }
@@ -151,10 +145,7 @@ export class ListingQueue {
             
             if (timeSinceOtherListing > 15 * 60 * 1000) { // 15 minutes après listing sur autre exchange
               console.log(`⏰ ${symbol} abandonné - déjà listé sur ${otherExchangeCheck.exchange} depuis ${Math.floor(timeSinceOtherListing/60000)}min`);
-              await this.telegramService.sendBotStatus(
-                "Frontrunning abandonné", 
-                `${symbol} déjà listé sur ${otherExchangeCheck.exchange} depuis ${Math.floor(timeSinceOtherListing/60000)}min`
-              );
+              console.log(`⏰ Frontrunning abandonné: ${symbol} déjà listé sur ${otherExchangeCheck.exchange} depuis ${Math.floor(timeSinceOtherListing/60000)}min`);
               this.queue.delete(symbol);
               continue;
             }
@@ -167,10 +158,7 @@ export class ListingQueue {
           // Vérifier si on a dépassé le nombre max de tentatives
           if (listing.checkCount >= listing.maxChecks) {
             console.log(`⏰ ${symbol} retiré de la file (max tentatives atteint)`);
-            await this.telegramService.sendBotStatus(
-              "Listing abandonné", 
-              `${symbol} non disponible après ${listing.maxChecks} vérifications`
-            );
+            console.log(`⏰ Listing abandonné: ${symbol} non disponible après ${listing.maxChecks} vérifications`);
             this.queue.delete(symbol);
           } else {
             // Continuer la surveillance
@@ -231,10 +219,7 @@ export class ListingQueue {
     console.log(`🚀 Exécution trade pour ${symbol} (délai: ${Math.floor(detectionDelay/1000)}s)`);
     
     // Notification de disponibilité
-    await this.telegramService.sendBotStatus(
-      "Token disponible", 
-      `${symbol} maintenant disponible sur Hyperliquid après ${Math.floor(detectionDelay/60000)}min`
-    );
+    console.log(`✅ Token disponible: ${symbol} maintenant disponible sur Hyperliquid après ${Math.floor(detectionDelay/60000)}min`);
 
     // Vérification des risques
     if (this.riskManager) {
@@ -242,7 +227,7 @@ export class ListingQueue {
       
       if (!riskCheck.allowed) {
         console.log(`🛡️ Trade bloqué: ${riskCheck.reason}`);
-        await this.telegramService.sendBotStatus("Trade bloqué", `${symbol}: ${riskCheck.reason}`);
+        console.log(`🛡️ Trade bloqué: ${symbol}: ${riskCheck.reason}`);
         return;
       }
     }

@@ -362,10 +362,18 @@ export class HyperliquidTrader {
       const markets = Object.keys(this.exchange.markets);
       const symbolUpper = symbol.toUpperCase();
       
+      // Vérifier les variantes possibles
+      const variants = [
+        symbolUpper,
+        `${symbolUpper}USDC`,
+        `${symbolUpper}PERP`,
+        `${symbolUpper}/USDC`,
+        `${symbolUpper}USDT`,
+        `${symbolUpper}/USDT`
+      ];
+      
       return markets.some(market => 
-        market.toUpperCase().includes(symbolUpper) || 
-        market.toUpperCase().includes(`${symbolUpper}USDC`) ||
-        market.toUpperCase().includes(`${symbolUpper}PERP`)
+        variants.some(variant => market.toUpperCase().includes(variant))
       );
     } catch (error) {
       console.error(`❌ Erreur vérification perp Hyperliquid pour ${symbol}:`, error);
@@ -384,7 +392,11 @@ export class HyperliquidTrader {
           type: market.type,
           active: market.active,
           precision: market.precision,
-          limits: market.limits
+          limits: market.limits,
+          minOrderSize: market.limits?.amount?.min || 0.001,
+          minNotional: market.limits?.cost?.min || 1,
+          tickSize: market.precision?.price || 0.001,
+          lotSize: market.precision?.amount || 0.001
         };
       }
       
@@ -438,6 +450,118 @@ export class HyperliquidTrader {
         volume: 0,
         change: 0,
         percentage: 0
+      };
+    }
+  }
+
+  /**
+   * Nouvelle méthode pour ouvrir une position avec sizing et stop loss
+   */
+  async openPositionWithSizing(
+    symbol: string,
+    qty: number,
+    leverage: number = 25,
+    stopLossPrice?: number
+  ): Promise<TradeResult> {
+    try {
+      console.log(`🚀 Ouverture position ${symbol} avec sizing: qty=${qty}, leverage=${leverage}, SL=${stopLossPrice}`);
+      
+      // Mode dry-run
+      if (process.env.DRY_RUN === '1') {
+        console.log(`🧪 DRY RUN: Simuler ouverture position ${symbol}`);
+        return {
+          success: true,
+          orderId: `dry-run-${Date.now()}`,
+          positionId: `dry-run-pos-${Date.now()}`,
+          details: {
+            symbol,
+            qty,
+            leverage,
+            stopLossPrice
+          }
+        };
+      }
+
+      // 1. Définir le levier si nécessaire
+      if (leverage > 1) {
+        try {
+          await this.exchange.setLeverage(leverage, symbol);
+          console.log(`⚙️ Levier défini: ${leverage}x pour ${symbol}`);
+        } catch (leverageError) {
+          console.warn(`⚠️ Impossible de définir le levier ${leverage}x: ${leverageError}`);
+        }
+      }
+
+      // 2. Ouvrir la position (market order)
+      const orderParams = {
+        symbol: `${symbol}/USDC`,
+        type: 'market',
+        side: 'buy',
+        amount: qty,
+        params: {
+          reduceOnly: false
+        }
+      };
+
+      const order = await this.exchange.createOrder(
+        orderParams.symbol,
+        orderParams.type,
+        orderParams.side,
+        orderParams.amount,
+        undefined,
+        orderParams.params
+      );
+
+      console.log(`✅ Ordre d'entrée exécuté: ${order.id}`);
+
+      // 3. Placer le stop loss si spécifié
+      let stopLossOrderId: string | undefined;
+      if (stopLossPrice && stopLossPrice > 0) {
+        try {
+          const slOrder = await this.exchange.createOrder(
+            `${symbol}/USDC`,
+            'stop',
+            'sell',
+            qty,
+            stopLossPrice,
+            {
+              reduceOnly: true,
+              stopPrice: stopLossPrice
+            }
+          );
+          stopLossOrderId = slOrder.id;
+          console.log(`🛡️ Stop loss placé: ${slOrder.id} @ ${stopLossPrice}`);
+        } catch (slError) {
+          console.warn(`⚠️ Impossible de placer le stop loss: ${slError}`);
+          // Continuer sans stop loss serveur
+        }
+      }
+
+      // 4. Enregistrer la position active
+      const positionId = `pos-${Date.now()}-${symbol}`;
+      this.activePositions.set(symbol, {
+        orderId: order.id,
+        closeTimer: setTimeout(() => {}, 0) // Sera remplacé par le vrai timer
+      });
+
+      return {
+        success: true,
+        orderId: order.id,
+        positionId,
+        details: {
+          symbol,
+          qty,
+          leverage,
+          stopLossPrice,
+          stopLossOrderId
+        }
+      };
+
+    } catch (error) {
+      console.error(`❌ Erreur ouverture position avec sizing ${symbol}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }

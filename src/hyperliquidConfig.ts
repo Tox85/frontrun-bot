@@ -4,7 +4,7 @@ import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 export const HYPERLIQUID_CONFIG = {
-  enabled: process.env.HYPERLIQUID_ENABLED === 'true',
+  enabled: process.env.HL_ENABLED === '1',
   // Configuration pour testnet/mainnet
   isTestnet: process.env.IS_DEMO === 'true',
   // Authentification

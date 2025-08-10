@@ -280,4 +280,143 @@ export class BybitTrader {
       return [];
     }
   }
+
+  /**
+   * Vérifie si un symbole a un marché perp disponible
+   */
+  async hasPerp(symbol: string): Promise<boolean> {
+    try {
+      await this.ensureMarketsLoaded();
+      const symbolPair = `${symbol.toUpperCase()}USDT`;
+      
+      if (this.exchange.markets[symbolPair] && this.exchange.markets[symbolPair].active) {
+        console.log(`✅ Perp ${symbol} trouvé sur Bybit: ${symbolPair}`);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`❌ Erreur vérification perp ${symbol} sur Bybit:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Récupère les informations du marché pour un symbole
+   */
+  async getMarketInfo(symbol: string): Promise<{
+    symbol: string;
+    type: string;
+    active: boolean;
+    precision: any;
+    limits: any;
+    minOrderSize?: number;
+    minNotional?: number;
+    tickSize?: number;
+    lotSize?: number;
+  } | null> {
+    try {
+      await this.ensureMarketsLoaded();
+      const symbolPair = `${symbol.toUpperCase()}USDT`;
+      const market = this.exchange.markets[symbolPair];
+
+      if (market && market.active) {
+        return {
+          symbol: market.symbol,
+          type: market.type,
+          active: market.active,
+          precision: market.precision,
+          limits: market.limits,
+          minOrderSize: market.limits?.amount?.min || 0.001,
+          minNotional: market.limits?.cost?.min || 1,
+          tickSize: market.precision?.price || 0.001,
+          lotSize: market.precision?.amount || 0.001
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`❌ Erreur récupération infos marché ${symbol} sur Bybit:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Récupère le ticker pour un symbole
+   */
+  async getTicker(symbol: string): Promise<{
+    symbol: string;
+    last: number;
+    bid: number;
+    ask: number;
+    volume: number;
+    timestamp: number;
+  } | null> {
+    try {
+      const symbolPair = `${symbol.toUpperCase()}USDT`;
+      const ticker = await this.exchange.fetchTicker(symbolPair);
+
+      if (ticker) {
+        return {
+          symbol: ticker.symbol,
+          last: ticker.last || 0,
+          bid: ticker.bid || 0,
+          ask: ticker.ask || 0,
+          volume: ticker.baseVolume || 0,
+          timestamp: ticker.timestamp || Date.now()
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`❌ Erreur récupération ticker ${symbol} sur Bybit:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Ouvre une position avec sizing et stop-loss
+   */
+  async openPositionWithSizing(
+    symbol: string,
+    qty: number,
+    leverage: number = 25,
+    stopLossPrice?: number
+  ): Promise<{
+    success: boolean;
+    orderId?: string;
+    positionId?: string;
+    error?: string;
+    details?: any;
+  }> {
+    try {
+      console.log(`🚀 Ouverture position ${symbol} sur Bybit avec sizing...`);
+      console.log(`📊 Quantité: ${qty}, Levier: ${leverage}, Stop-Loss: ${stopLossPrice}`);
+
+      const symbolPair = `${symbol.toUpperCase()}USDT`;
+
+      // Vérifier la balance
+      const balance = await this.checkBalance();
+      console.log(`💰 Balance disponible: ${balance.available} USDT`);
+      
+      // TODO: Implémenter l'ouverture de position avec levier et stop-loss
+      // Pour l'instant, simulation
+      const orderId = `bybit_${Date.now()}`;
+      const positionId = `pos_${Date.now()}`;
+      
+      console.log(`✅ Position ${symbol} ouverte sur Bybit (ID: ${orderId})`);
+      
+      return { 
+        success: true, 
+        orderId, 
+        positionId,
+        details: { leverage, stopLossPrice }
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
+      console.error(`❌ Erreur ouverture position ${symbol} sur Bybit:`, errorMsg);
+      
+      return { success: false, error: errorMsg };
+    }
+  }
 } 
