@@ -92,15 +92,15 @@ async function startBot() {
     
     // Initialiser Hyperliquid (priorité)
     if (process.env.HL_ENABLED === '1') {
-      console.log("🔧 Initialisation du trader Hyperliquid...");
-      hyperliquidTrader = new HyperliquidTrader();
+    console.log("🔧 Initialisation du trader Hyperliquid...");
+    hyperliquidTrader = new HyperliquidTrader();
       const hlInitialized = await hyperliquidTrader.initialize();
       if (hlInitialized) {
         console.log("✅ Trader Hyperliquid initialisé avec succès");
         traderInitialized = true;
         // Synchroniser avec trader.ts
         setHyperliquidTrader(hyperliquidTrader);
-      } else {
+    } else {
         console.log("⚠️ Échec initialisation Hyperliquid");
       }
     }
@@ -114,7 +114,7 @@ async function startBot() {
       if (binanceInitialized) {
         console.log("✅ Trader Binance initialisé avec succès");
         if (!traderInitialized) traderInitialized = true;
-      } else {
+    } else {
         console.log("⚠️ Échec initialisation Binance");
       }
     }
@@ -128,7 +128,7 @@ async function startBot() {
       if (bybitInitialized) {
         console.log("✅ Trader Bybit initialisé avec succès");
         if (!traderInitialized) traderInitialized = true;
-      } else {
+        } else {
         console.log("⚠️ Échec initialisation Bybit");
       }
     }
@@ -176,7 +176,7 @@ async function startBot() {
 
 
     // Surveillance articles Bithumb désactivée (Cloudflare protection)
-    console.log("📰 Surveillance articles Bithumb désactivée (Cloudflare protection)");
+      console.log("📰 Surveillance articles Bithumb désactivée (Cloudflare protection)");
 
     // Gestionnaire des nouveaux listings avec monitoring et analyse globale
     async function handleNewListing(listing: KoreanListingEvent) {
@@ -196,9 +196,9 @@ async function startBot() {
         console.log(`🆕 NOUVEAU LISTING: ${symbol} | ${metadata.exchange || metadata.source || 'N/A'} | ${metadata.price || 'N/A'}`);
       } else {
         // Logs détaillés pour développement
-        console.log(`🆕 NOUVEAU LISTING DÉTECTÉ !`);
+      console.log(`🆕 NOUVEAU LISTING DÉTECTÉ !`);
         console.log(`📊 Symbole : ${symbol}`);
-        if (metadata) {
+      if (metadata) {
           console.log(`🏢 Exchange : ${metadata.exchange || metadata.source || 'N/A'}`);
           console.log(`🔗 Marché complet : ${metadata.fullSymbol || symbol}`);
           console.log(`💰 Prix : ${metadata.price || 'N/A'}`);
@@ -283,36 +283,36 @@ async function startBot() {
         }
       } else {
         // Fallback vers l'ancien système si l'orchestrateur n'est pas disponible
-        if (listingQueue && traderInitialized) {
+      if (listingQueue && traderInitialized) {
           if (!isRailway) {
-            console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
+        console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
           }
-          listingQueue.addListing(symbol, metadata, source);
-          
-          // Vérification immédiate pour les WebSockets (déjà listés)
-          if (source === 'websocket') {
+        listingQueue.addListing(symbol, metadata, source);
+        
+        // Vérification immédiate pour les WebSockets (déjà listés)
+        if (source === 'websocket') {
             if (!isRailway) {
-              console.log(`🔍 Vérification immédiate pour ${symbol} (WebSocket)`);
+          console.log(`🔍 Vérification immédiate pour ${symbol} (WebSocket)`);
             }
-            const hasPerp = await hyperliquidTrader?.hasPerp(symbol);
-            if (hasPerp) {
-              console.log(`✅ ${symbol} immédiatement disponible sur Hyperliquid !`);
-              // Le trade sera géré par la file d'attente
-            } else {
-              if (!isRailway) {
-                console.log(`⏳ ${symbol} pas encore disponible, surveillance en cours...`);
-              }
-            }
+          const hasPerp = await hyperliquidTrader?.hasPerp(symbol);
+          if (hasPerp) {
+            console.log(`✅ ${symbol} immédiatement disponible sur Hyperliquid !`);
+            // Le trade sera géré par la file d'attente
           } else {
-            if (!isRailway) {
-              console.log(`⏳ ${symbol} ajouté à la file d'attente pour surveillance continue...`);
-            }
+              if (!isRailway) {
+            console.log(`⏳ ${symbol} pas encore disponible, surveillance en cours...`);
+              }
           }
         } else {
-          if (!isRailway) {
-            console.log(`📊 Listing détecté: ${symbol} (Mode surveillance uniquement - Hyperliquid non configuré)`);
-          }
+            if (!isRailway) {
+          console.log(`⏳ ${symbol} ajouté à la file d'attente pour surveillance continue...`);
+            }
         }
+      } else {
+          if (!isRailway) {
+        console.log(`📊 Listing détecté: ${symbol} (Mode surveillance uniquement - Hyperliquid non configuré)`);
+      }
+    }
       }
     }
 
