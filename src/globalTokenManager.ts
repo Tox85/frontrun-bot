@@ -18,6 +18,9 @@ export class GlobalTokenManager {
   private binanceChecker: BinanceChecker;
   private priceFetcher: PriceFetcher;
   private telegramService: TelegramService | null = null;
+  private globalMonitoringInterval: number = 600000; // 10 minutes au lieu de 5
+  private isGlobalMonitoringActive: boolean = false;
+  private globalMonitoringTimer: NodeJS.Timeout | null = null;
 
   constructor(telegramService?: TelegramService) {
     this.binanceChecker = new BinanceChecker();
@@ -184,11 +187,56 @@ export class GlobalTokenManager {
   }
 
   public startGlobalMonitoring(): void {
-    this.binanceChecker.startGlobalMonitoring();
+    if (this.isGlobalMonitoringActive) {
+      console.log('⚠️ Monitoring global déjà actif');
+      return;
+    }
+
+    // Vérifier si la surveillance globale est activée
+    if (process.env.ENABLE_GLOBAL_MONITORING === 'false') {
+      console.log('⏸️ Surveillance globale désactivée - Focus sur frontrunning coréen');
+      return;
+    }
+
+    console.log('🌍 Démarrage du monitoring global Binance...');
+    this.isGlobalMonitoringActive = true;
+    
+    // Premier check immédiat
+    this.checkGlobalTokens();
+    
+    // Timer récurrent avec intervalle optimisé
+    this.globalMonitoringTimer = setInterval(() => {
+      this.checkGlobalTokens();
+    }, this.globalMonitoringInterval);
+    
+    console.log(`✅ Monitoring global Binance actif (intervalle: ${this.globalMonitoringInterval / 1000}s)`);
+  }
+
+  private async checkGlobalTokens(): Promise<void> {
+    try {
+      console.log('🔍 Vérification des nouveaux tokens globaux sur Binance...');
+      const newTokens = await this.binanceChecker.checkForNewGlobalTokens();
+      
+      if (newTokens.length > 0) {
+        console.log(`🆕 ${newTokens.length} nouveau(x) token(s) global(aux) détecté(s)`);
+      } else {
+        const knownTokens = this.binanceChecker.getKnownGlobalTokens();
+        console.log(`📊 Aucun nouveau token global détecté (${knownTokens.length} tokens surveillés)`);
+      }
+    } catch (error) {
+      console.error('❌ Erreur vérification tokens globaux:', error);
+    }
   }
 
   public stopGlobalMonitoring(): void {
-    this.binanceChecker.stopGlobalMonitoring();
+    if (this.globalMonitoringTimer) {
+      clearInterval(this.globalMonitoringTimer);
+      this.globalMonitoringTimer = null;
+      this.isGlobalMonitoringActive = false;
+      console.log('🛑 Arrêt du monitoring global Binance.');
+    } else {
+      console.log('⚠️ Monitoring global déjà inactif.');
+    }
   }
 
   public getGlobalStats() {

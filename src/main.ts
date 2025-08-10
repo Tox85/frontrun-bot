@@ -72,7 +72,13 @@ async function startBot() {
     // Initialiser le gestionnaire de tokens globaux
     console.log("🌍 Initialisation du gestionnaire de tokens globaux...");
     globalTokenManager = new GlobalTokenManager(telegramService);
-    globalTokenManager.startGlobalMonitoring();
+    
+    // Désactiver la surveillance globale par défaut - Focus sur Corée
+    if (process.env.ENABLE_GLOBAL_MONITORING === 'true') {
+      globalTokenManager.startGlobalMonitoring();
+    } else {
+      console.log("⏸️ Surveillance globale désactivée - Focus sur frontrunning coréen");
+    }
 
     // Initialiser la surveillance des listings coréens
     console.log("🇰🇷 Initialisation de la surveillance des listings coréens...");

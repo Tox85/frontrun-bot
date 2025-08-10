@@ -128,6 +128,11 @@ export class BithumbWatcher {
 
   private handleWebSocketMessage(message: any): void {
     try {
+      // Log de surveillance coréenne
+      if (process.env.ENABLE_KOREAN_LOGS === 'true') {
+        console.log(`🇰🇷 WebSocket Bithumb actif - ${new Date().toLocaleTimeString()}`);
+      }
+
       // Vérifier si c'est un nouveau listing
       if (message.type === 'ticker' && message.content) {
         const symbol = message.content.symbol;

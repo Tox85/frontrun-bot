@@ -76,7 +76,16 @@ export class UpbitWatcher {
 
   private async checkNewListings(): Promise<void> {
     try {
+      if (!this.isRunning) return;
+
+      // Log de surveillance coréenne
+      if (process.env.ENABLE_KOREAN_LOGS === 'true') {
+        console.log(`🇰🇷 Polling Upbit... (${new Date().toLocaleTimeString()})`);
+      }
+
       const currentTokens = await this.fetchUpbitListings();
+      if (currentTokens.length === 0) return;
+
       const newTokens = currentTokens.filter(token => !this.lastKnownTokens.has(token.symbol));
       
       if (newTokens.length > 0) {
