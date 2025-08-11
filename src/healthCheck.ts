@@ -1,16 +1,26 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { CONFIG, getConfigSummary, ENVZ_ENABLED } from './config/env';
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = CONFIG.PORT;
+
+// Fonction pour envoyer une réponse JSON
+function sendJsonResponse(res: ServerResponse, statusCode: number, data: any) {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.writeHead(statusCode);
+  res.end(JSON.stringify(data, null, 2));
+}
 
 // Fonction pour vérifier l'état de l'application
 function getHealthStatus() {
   const uptime = process.uptime();
   const memory = process.memoryUsage();
-  const healthStatus = {
-    status: 'OK',
+  
+  return {
+    status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'Frontrun Bot',
-    version: '1.0.0',
     uptime: uptime,
     memory: {
       rss: Math.round(memory.rss / 1024 / 1024) + ' MB',
@@ -18,54 +28,114 @@ function getHealthStatus() {
       heapUsed: Math.round(memory.heapUsed / 1024 / 1024) + ' MB',
       external: Math.round(memory.external / 1024 / 1024) + ' MB'
     },
-    environment: process.env.NODE_ENV || 'development',
-    port: PORT,
-    pid: process.pid
+    environment: CONFIG.NODE_ENV,
+    isRailway: CONFIG.IS_RAILWAY,
+    port: PORT
   };
-
-  // Vérifier si l'application fonctionne correctement
-  if (uptime < 5) {
-    healthStatus.status = 'STARTING';
-  }
-
-  return healthStatus;
 }
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
+  // Gestion des requêtes OPTIONS (CORS)
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
     res.end();
     return;
   }
   
-  if (req.url === '/' || req.url === '/health') {
+  const url = req.url || '/';
+  const method = req.method || 'GET';
+
+  try {
+    if (method === 'GET') {
+      switch (url) {
+        case '/':
+        case '/health':
     const healthData = getHealthStatus();
-    const statusCode = healthData.status === 'OK' ? 200 : 503;
+          sendJsonResponse(res, 200, healthData);
+          break;
     
-    res.writeHead(statusCode);
-    res.end(JSON.stringify(healthData, null, 2));
-  } else if (req.url === '/ready') {
-    // Endpoint pour vérifier si l'application est prête
+        case '/ready':
     const uptime = process.uptime();
-    if (uptime > 10) { // L'application est prête après 10 secondes
-      res.writeHead(200);
-      res.end(JSON.stringify({ status: 'READY', uptime }));
+          const readyStatus = uptime > 10 ? 'ready' : 'starting';
+          sendJsonResponse(res, 200, {
+            status: readyStatus,
+            timestamp: new Date().toISOString(),
+            uptime: uptime,
+            environment: CONFIG.NODE_ENV,
+            isRailway: CONFIG.IS_RAILWAY
+          });
+          break;
+
+        case '/ping':
+          sendJsonResponse(res, 200, {
+            status: 'pong',
+            timestamp: new Date().toISOString(),
+            environment: CONFIG.NODE_ENV
+          });
+          break;
+
+        case '/envz':
+          if (!ENVZ_ENABLED) {
+            sendJsonResponse(res, 403, {
+              error: 'Endpoint /envz désactivé',
+              message: 'Définissez ENVZ_ENABLED=true pour activer ce endpoint'
+            });
+            return;
+          }
+
+          try {
+            const summary = getConfigSummary();
+            sendJsonResponse(res, 200, {
+              status: 'ok',
+              timestamp: new Date().toISOString(),
+              environment: CONFIG.NODE_ENV,
+              isRailway: CONFIG.IS_RAILWAY,
+              config: summary
+            });
+          } catch (error) {
+            sendJsonResponse(res, 500, {
+              error: 'Erreur lors de la récupération de la configuration',
+              message: error instanceof Error ? error.message : 'Erreur inconnue'
+            });
+          }
+          break;
+
+        case '/status':
+          sendJsonResponse(res, 200, {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            services: {
+              hyperliquid: CONFIG.HL_ENABLED ? 'enabled' : 'disabled',
+              upbit: CONFIG.UPBIT_ENABLED ? 'enabled' : 'disabled',
+              bithumb: CONFIG.BITHUMB_ENABLED ? 'enabled' : 'disabled',
+              binance: CONFIG.BINANCE_ENABLED ? 'enabled' : 'disabled',
+              bybit: CONFIG.BYBIT_ENABLED ? 'enabled' : 'disabled',
+              telegram: CONFIG.TELEGRAM_ENABLED ? 'enabled' : 'disabled'
+            },
+            environment: CONFIG.NODE_ENV,
+            isRailway: CONFIG.IS_RAILWAY,
+            port: CONFIG.PORT
+          });
+          break;
+
+        default:
+          sendJsonResponse(res, 404, {
+            error: 'Endpoint non trouvé',
+            availableEndpoints: ['/', '/health', '/ready', '/ping', '/envz', '/status']
+          });
+      }
     } else {
-      res.writeHead(503);
-      res.end(JSON.stringify({ status: 'STARTING', uptime }));
+      sendJsonResponse(res, 405, {
+        error: 'Méthode non autorisée',
+        allowedMethods: ['GET']
+      });
     }
-  } else if (req.url === '/ping') {
-    // Endpoint simple pour les tests rapides
-    res.writeHead(200);
-    res.end(JSON.stringify({ status: 'PONG', timestamp: new Date().toISOString() }));
-  } else {
-    res.writeHead(404);
-    res.end(JSON.stringify({ error: 'Not found' }));
+  } catch (error) {
+    console.error('❌ Erreur dans le serveur de santé:', error);
+    sendJsonResponse(res, 500, {
+      error: 'Erreur interne du serveur',
+      message: error instanceof Error ? error.message : 'Erreur inconnue'
+    });
   }
 });
 
@@ -73,43 +143,46 @@ export function startHealthCheck() {
   try {
     // Écouter sur toutes les interfaces réseau (0.0.0.0) pour Railway
     server.listen(PORT, '0.0.0.0', () => {
-      console.log(`🏥 Health check server running on port ${PORT}`);
-      console.log(`🌐 Health check available at: http://0.0.0.0:${PORT}/health`);
-      console.log(`✅ Ready check available at: http://0.0.0.0:${PORT}/ready`);
-      console.log(`🏓 Ping check available at: http://0.0.0.0:${PORT}/ping`);
+      console.log(`🏥 Serveur de santé démarré sur le port ${PORT}`);
+      console.log(`   📍 Endpoints disponibles:`);
+      console.log(`      - GET /health - Statut de santé`);
+      console.log(`      - GET /ready - Prêt à recevoir du trafic`);
+      console.log(`      - GET /ping - Ping pour Railway`);
+      console.log(`      - GET /envz - Configuration (si ENVZ_ENABLED=true)`);
+      console.log(`      - GET /status - Statut des services`);
     });
     
     server.on('error', (error) => {
-      console.error('❌ Health check server error:', error);
+      console.error('❌ Erreur du serveur de santé:', error);
       // En cas d'erreur, essayer de redémarrer le serveur après 5 secondes
       setTimeout(() => {
-        console.log('🔄 Attempting to restart health check server...');
+        console.log('🔄 Tentative de redémarrage du serveur de santé...');
         startHealthCheck();
       }, 5000);
     });
 
     // Gestion propre de l'arrêt
     process.on('SIGTERM', () => {
-      console.log('🛑 Shutting down health check server...');
+      console.log('🛑 Arrêt du serveur de santé...');
       server.close(() => {
-        console.log('✅ Health check server closed');
+        console.log('✅ Serveur de santé fermé');
         process.exit(0);
       });
     });
 
     process.on('SIGINT', () => {
-      console.log('🛑 Shutting down health check server...');
+      console.log('🛑 Arrêt du serveur de santé...');
       server.close(() => {
-        console.log('✅ Health check server closed');
+        console.log('✅ Serveur de santé fermé');
         process.exit(0);
       });
     });
 
   } catch (error) {
-    console.error('❌ Failed to start health check server:', error);
+    console.error('❌ Échec du démarrage du serveur de santé:', error);
     // En cas d'erreur fatale, redémarrer après 10 secondes
     setTimeout(() => {
-      console.log('🔄 Attempting to restart health check server after fatal error...');
+      console.log('🔄 Tentative de redémarrage après erreur fatale...');
       startHealthCheck();
     }, 10000);
   }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { CONFIG } from './config/env';
 
 export interface UpbitListing {
   symbol: string;
@@ -14,7 +15,7 @@ export class UpbitWatcher {
   private intervalId: NodeJS.Timeout | null = null;
   private lastKnownTokens: Set<string> = new Set();
   private onNewListing: (listing: UpbitListing) => void;
-  private pollingInterval: number = process.env.RAILWAY_ENVIRONMENT ? 5000 : 2000; // Adaptatif : 5s Railway, 2s local
+  private pollingInterval: number = CONFIG.IS_RAILWAY ? 5000 : 2000; // Adaptatif : 5s Railway, 2s local
 
   constructor(onNewListing: (listing: UpbitListing) => void) {
     this.onNewListing = onNewListing;
@@ -79,7 +80,7 @@ export class UpbitWatcher {
       if (!this.isRunning) return;
 
       // Log de surveillance coréenne - DÉSACTIVÉ pour éviter le spam
-      // if (process.env.ENABLE_KOREAN_LOGS === 'true' && !process.env.RAILWAY_ENVIRONMENT) {
+      // if (CONFIG.ENABLE_KOREAN_LOGS && !CONFIG.IS_RAILWAY) {
       //   console.log(`🇰🇷 Polling Upbit... (${new Date().toLocaleTimeString()})`);
       // }
 

@@ -1,6 +1,7 @@
 import { BinanceChecker, GlobalTokenInfo } from './binanceChecker';
 import { TelegramService } from './telegramService';
 import { PriceFetcher, TokenPrice } from './priceFetcher';
+import { CONFIG } from './config/env';
 import ccxt from 'ccxt';
 
 export interface ListingAnalysis {
@@ -193,7 +194,7 @@ export class GlobalTokenManager {
     }
 
     // Vérifier si la surveillance globale est activée
-    if (process.env.ENABLE_GLOBAL_MONITORING === 'false') {
+    if (!CONFIG.ENABLE_GLOBAL_MONITORING) {
       console.log('⏸️ Surveillance globale désactivée - Focus sur frontrunning coréen');
       return;
     }

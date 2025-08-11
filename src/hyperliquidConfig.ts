@@ -1,20 +1,17 @@
-import dotenv from 'dotenv';
-import path from 'path';
-
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+import { CONFIG } from './config/env';
 
 export const HYPERLIQUID_CONFIG = {
-  enabled: process.env.HL_ENABLED === '1',
+  enabled: CONFIG.HL_ENABLED,
   // Configuration pour testnet/mainnet
-  isTestnet: process.env.IS_DEMO === 'true',
+  isTestnet: CONFIG.HL_TESTNET,
   // Authentification
-  walletAddress: process.env.HYPERLIQUID_WALLET_ADDRESS || '',
-  privateKey: process.env.HYPERLIQUID_PRIVATE_KEY || '',
+  walletAddress: CONFIG.HL_WALLET,
+  privateKey: CONFIG.HL_PRIVATE_KEY,
   // URLs selon l'environnement
-  apiUrl: process.env.IS_DEMO === 'true' 
+  apiUrl: CONFIG.HL_TESTNET
     ? 'https://api.hyperliquid-testnet.xyz'
     : 'https://api.hyperliquid.xyz',
-  wsUrl: process.env.IS_DEMO === 'true'
+  wsUrl: CONFIG.HL_TESTNET
     ? 'wss://api.hyperliquid-testnet.xyz/ws'
     : 'wss://api.hyperliquid.xyz/ws',
 };

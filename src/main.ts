@@ -14,15 +14,31 @@ import { ListingQueue } from './listingQueue';
 import { GlobalTokenManager } from './globalTokenManager';
 import { PositionOrchestrator, ListingEvent } from './execution/positionOrchestrator';
 import { ListingSurveillance, KoreanListingEvent } from './listingSurveillance';
+
+// Configuration centralisée
+import { CONFIG, logConfigSummary, validateConfig } from './config/env';
+
 console.log("🚀 Frontrun Bot is running!");
 
-// Mode Railway - réduire les logs pour éviter les problèmes de performance
-const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
-if (isRailway) {
-  console.log("🚂 Mode Railway détecté - Logs optimisés activés");
-  // Réduire la verbosité des logs en production
-  process.env.ENABLE_KOREAN_LOGS = 'false';
-  process.env.ENABLE_VERBOSE_LOGS = 'false';
+// Log de la configuration au démarrage
+logConfigSummary();
+
+// Validation de la configuration
+const configValidation = validateConfig();
+if (!configValidation.isValid) {
+  console.error('❌ Erreurs de configuration critiques:');
+  configValidation.errors.forEach(error => console.error(`  - ${error}`));
+  if (CONFIG.IS_PROD) {
+    console.error('🚨 Arrêt du bot en production à cause d\'erreurs de configuration');
+    process.exit(1);
+  } else {
+    console.warn('⚠️ Continuation en mode développement malgré les erreurs');
+  }
+}
+
+if (configValidation.warnings.length > 0) {
+  console.warn('⚠️ Avertissements de configuration:');
+  configValidation.warnings.forEach(warning => console.warn(`  - ${warning}`));
 }
 
 // Variables globales
@@ -81,8 +97,8 @@ async function startBot() {
     console.log("🌍 Initialisation du gestionnaire de tokens globaux...");
     globalTokenManager = new GlobalTokenManager(telegramService);
     
-    // Désactiver la surveillance globale par défaut - Focus sur Corée
-    if (process.env.ENABLE_GLOBAL_MONITORING === 'true') {
+    // Désactiver la surveillance globale par défaut - Focus sur Coré
+    if (CONFIG.ENABLE_GLOBAL_MONITORING) {
       globalTokenManager.startGlobalMonitoring();
     } else {
       console.log("⏸️ Surveillance globale désactivée - Focus sur frontrunning coréen");
@@ -100,31 +116,31 @@ async function startBot() {
     
     let tradersInitialized = 0;
     
-    // Initialiser Hyperliquid (priorité)
-    if (process.env.HL_ENABLED === '1') {
-      console.log("🔧 Initialisation du trader Hyperliquid...");
-      try {
-        hyperliquidTrader = new HyperliquidTrader();
-        const hlInitialized = await hyperliquidTrader.initialize();
-        if (hlInitialized) {
-          console.log("✅ Trader Hyperliquid initialisé avec succès");
-          traderInitialized = true;
-          tradersInitialized++;
-          // Synchroniser avec trader.ts
-          setHyperliquidTrader(hyperliquidTrader);
-        } else {
-          console.log("⚠️ Échec initialisation Hyperliquid");
-        }
-      } catch (error) {
-        console.error("❌ Erreur initialisation Hyperliquid:", error);
-      }
-    } else {
-      console.log("⏸️ Hyperliquid désactivé (HL_ENABLED != 1)");
-    }
+         // Initialiser Hyperliquid (priorité)
+     if (CONFIG.HL_ENABLED) {
+       console.log("🔧 Initialisation du trader Hyperliquid...");
+       try {
+         hyperliquidTrader = new HyperliquidTrader();
+         const hlInitialized = await hyperliquidTrader.initialize();
+         if (hlInitialized) {
+           console.log("✅ Trader Hyperliquid initialisé avec succès");
+           traderInitialized = true;
+           tradersInitialized++;
+           // Synchroniser avec trader.ts
+           setHyperliquidTrader(hyperliquidTrader);
+         } else {
+           console.log("⚠️ Échec initialisation Hyperliquid");
+         }
+       } catch (error) {
+         console.error("❌ Erreur initialisation Hyperliquid:", error);
+       }
+     } else {
+       console.log("⏸️ Hyperliquid désactivé (HL_ENABLED != 1)");
+     }
 
     // Initialiser Binance (si activé)
     let binanceTrader: BinanceTrader | undefined = undefined;
-    if (process.env.BINANCE_ENABLED === '1') {
+    if (CONFIG.BINANCE_ENABLED) {
       console.log("🔧 Initialisation du trader Binance...");
       try {
         binanceTrader = new BinanceTrader(telegramService);
@@ -145,7 +161,7 @@ async function startBot() {
 
     // Initialiser Bybit (si activé)
     let bybitTrader: BybitTrader | undefined = undefined;
-    if (process.env.BYBIT_ENABLED === '1') {
+    if (CONFIG.BYBIT_ENABLED) {
       console.log("🔧 Initialisation du trader Bybit...");
       try {
         bybitTrader = new BybitTrader();
@@ -231,7 +247,7 @@ async function startBot() {
         fullSymbol: listing.fullSymbol
       };
       
-      if (isRailway) {
+      if (CONFIG.IS_RAILWAY) {
         // Logs compacts pour Railway
         console.log(`🆕 NOUVEAU LISTING: ${symbol} | ${metadata.exchange || metadata.source || 'N/A'} | ${metadata.price || 'N/A'}`);
       } else {
@@ -261,13 +277,13 @@ async function startBot() {
 
       // ANALYSE GLOBALE - Vérifier si le token est listé globalement
       if (globalTokenManager) {
-        if (!isRailway) {
+        if (!CONFIG.IS_RAILWAY) {
           console.log(`🌍 Analyse globale pour ${symbol}...`);
         }
         const analysis = await globalTokenManager.analyzeKoreanListing(symbol, metadata);
         
         // Log de l'analyse
-        if (isRailway) {
+        if (CONFIG.IS_RAILWAY) {
           console.log(`📊 Analyse: ${symbol} | ${analysis.eventType} | ${analysis.priority}`);
         } else {
           console.log(`📊 Résultat analyse: ${analysis.eventType} - Priorité: ${analysis.priority}`);
@@ -324,14 +340,14 @@ async function startBot() {
       } else {
         // Fallback vers l'ancien système si l'orchestrateur n'est pas disponible
         if (listingQueue && traderInitialized) {
-          if (!isRailway) {
+          if (!CONFIG.IS_RAILWAY) {
             console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
           }
           listingQueue.addListing(symbol, metadata, source);
           
           // Vérification immédiate pour les WebSockets (déjà listés)
           if (source === 'websocket') {
-            if (!isRailway) {
+            if (!CONFIG.IS_RAILWAY) {
               console.log(`🔍 Vérification immédiate WebSocket pour ${symbol}`);
             }
             // Note: processImmediate n'existe pas, on utilise addListing

@@ -1,5 +1,6 @@
 import { UpbitWatcher, UpbitListing } from './upbitWatcher';
 import { BithumbWatcher, BithumbListing } from './bithumbWatcher';
+import { CONFIG } from './config/env';
 
 export type KoreanListingEvent = UpbitListing | BithumbListing;
 
@@ -23,7 +24,7 @@ export class ListingSurveillance {
     
     try {
       // Démarrer Upbit (polling 2s)
-      if (process.env.UPBIT_ENABLED === '1') {
+      if (CONFIG.UPBIT_ENABLED) {
         console.log('🔍 Activation surveillance Upbit...');
         this.upbitWatcher = new UpbitWatcher(this.onNewListing);
         await this.upbitWatcher.start();
@@ -32,7 +33,7 @@ export class ListingSurveillance {
       }
 
       // Démarrer Bithumb (WebSocket temps réel)
-      if (process.env.BITHUMB_ENABLED === '1') {
+      if (CONFIG.BITHUMB_ENABLED) {
         console.log('🔍 Activation surveillance Bithumb...');
         this.bithumbWatcher = new BithumbWatcher(this.onNewListing);
         await this.bithumbWatcher.start();
