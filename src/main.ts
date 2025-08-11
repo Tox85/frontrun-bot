@@ -14,13 +14,15 @@ import { ListingQueue } from './listingQueue';
 import { GlobalTokenManager } from './globalTokenManager';
 import { PositionOrchestrator, ListingEvent } from './execution/positionOrchestrator';
 import { ListingSurveillance, KoreanListingEvent } from './listingSurveillance';
-
 console.log("🚀 Frontrun Bot is running!");
 
 // Mode Railway - réduire les logs pour éviter les problèmes de performance
 const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
 if (isRailway) {
   console.log("🚂 Mode Railway détecté - Logs optimisés activés");
+  // Réduire la verbosité des logs en production
+  process.env.ENABLE_KOREAN_LOGS = 'false';
+  process.env.ENABLE_VERBOSE_LOGS = 'false';
 }
 
 // Variables globales
@@ -42,6 +44,16 @@ async function startBot() {
   try {
     console.log("🤖 Initialisation du bot...");
     
+    // Validation de la configuration Railway
+    // const railwayConfig = validateRailwayConfig(); // This line is removed
+    // const configErrors = getMissingConfigErrors(); // This line is removed
+    
+    // if (configErrors.length > 0) { // This block is removed
+    //   console.error("❌ Erreurs de configuration Railway:"); // This block is removed
+    //   configErrors.forEach(error => console.error(`  - ${error}`)); // This block is removed
+    //   console.error("⚠️ Le bot continuera en mode surveillance uniquement"); // This block is removed
+    // } // This block is removed
+    
     // Diagnostic système au démarrage
     console.log("🔍 Exécution du diagnostic système...");
     const diagnosticTool = new DiagnosticTool();
@@ -58,10 +70,6 @@ async function startBot() {
     // Initialiser le service Telegram sécurisé
     telegramService = new TelegramService();
     
-    // Vérifier la balance et envoyer le message de démarrage sécurisé
-    const balance = await checkBalance();
-    await telegramService.sendBotReady(balance.available);
-
     // Initialiser les nouveaux modules
     console.log("📊 Initialisation des modules avancés...");
     retryManager = new TradeRetryManager(telegramService);
@@ -90,51 +98,84 @@ async function startBot() {
     // Initialiser les traders
     console.log("💰 Initialisation des traders...");
     
+    let tradersInitialized = 0;
+    
     // Initialiser Hyperliquid (priorité)
     if (process.env.HL_ENABLED === '1') {
-    console.log("🔧 Initialisation du trader Hyperliquid...");
-    hyperliquidTrader = new HyperliquidTrader();
-      const hlInitialized = await hyperliquidTrader.initialize();
-      if (hlInitialized) {
-        console.log("✅ Trader Hyperliquid initialisé avec succès");
-        traderInitialized = true;
-        // Synchroniser avec trader.ts
-        setHyperliquidTrader(hyperliquidTrader);
-    } else {
-        console.log("⚠️ Échec initialisation Hyperliquid");
+      console.log("🔧 Initialisation du trader Hyperliquid...");
+      try {
+        hyperliquidTrader = new HyperliquidTrader();
+        const hlInitialized = await hyperliquidTrader.initialize();
+        if (hlInitialized) {
+          console.log("✅ Trader Hyperliquid initialisé avec succès");
+          traderInitialized = true;
+          tradersInitialized++;
+          // Synchroniser avec trader.ts
+          setHyperliquidTrader(hyperliquidTrader);
+        } else {
+          console.log("⚠️ Échec initialisation Hyperliquid");
+        }
+      } catch (error) {
+        console.error("❌ Erreur initialisation Hyperliquid:", error);
       }
+    } else {
+      console.log("⏸️ Hyperliquid désactivé (HL_ENABLED != 1)");
     }
 
     // Initialiser Binance (si activé)
     let binanceTrader: BinanceTrader | undefined = undefined;
     if (process.env.BINANCE_ENABLED === '1') {
       console.log("🔧 Initialisation du trader Binance...");
-      binanceTrader = new BinanceTrader(telegramService);
-      const binanceInitialized = await binanceTrader.initialize();
-      if (binanceInitialized) {
-        console.log("✅ Trader Binance initialisé avec succès");
-        if (!traderInitialized) traderInitialized = true;
-    } else {
-        console.log("⚠️ Échec initialisation Binance");
+      try {
+        binanceTrader = new BinanceTrader(telegramService);
+        const binanceInitialized = await binanceTrader.initialize();
+        if (binanceInitialized) {
+          console.log("✅ Trader Binance initialisé avec succès");
+          if (!traderInitialized) traderInitialized = true;
+          tradersInitialized++;
+        } else {
+          console.log("⚠️ Échec initialisation Binance");
+        }
+      } catch (error) {
+        console.error("❌ Erreur initialisation Binance:", error);
       }
+    } else {
+      console.log("⏸️ Binance désactivé (BINANCE_ENABLED != 1)");
     }
 
     // Initialiser Bybit (si activé)
     let bybitTrader: BybitTrader | undefined = undefined;
     if (process.env.BYBIT_ENABLED === '1') {
       console.log("🔧 Initialisation du trader Bybit...");
-      bybitTrader = new BybitTrader();
-      const bybitInitialized = await bybitTrader.initialize();
-      if (bybitInitialized) {
-        console.log("✅ Trader Bybit initialisé avec succès");
-        if (!traderInitialized) traderInitialized = true;
+      try {
+        bybitTrader = new BybitTrader();
+        const bybitInitialized = await bybitTrader.initialize();
+        if (bybitInitialized) {
+          console.log("✅ Trader Bybit initialisé avec succès");
+          if (!traderInitialized) traderInitialized = true;
+          tradersInitialized++;
         } else {
-        console.log("⚠️ Échec initialisation Bybit");
+          console.log("⚠️ Échec initialisation Bybit");
+        }
+      } catch (error) {
+        console.error("❌ Erreur initialisation Bybit:", error);
       }
+    } else {
+      console.log("⏸️ Bybit désactivé (BYBIT_ENABLED != 1)");
     }
+    
+    console.log(`📊 Résumé traders: ${tradersInitialized} trader(s) initialisé(s)`);
     
     if (traderInitialized) {
       console.log("✅ Au moins un trader initialisé avec succès");
+      
+      // Vérifier la balance APRÈS l'initialisation des traders
+      console.log("💰 Vérification de la balance...");
+      const balance = await checkBalance();
+      console.log(`💰 Balance disponible: ${balance.available} USDC`);
+      
+      // Envoyer le message de démarrage avec la vraie balance
+      await telegramService.sendBotReady(balance.available);
       
       // Initialiser l'orchestrateur de positions
       console.log("🎯 Initialisation de l'orchestrateur de positions...");
@@ -149,10 +190,6 @@ async function startBot() {
       );
       console.log("✅ Orchestrateur de positions initialisé");
       
-      // Vérifier la balance
-      const balance = await checkBalance();
-      console.log(`💰 Balance disponible: ${balance.available} USDC`);
-      
       // Initialiser la file d'attente avec l'orchestrateur
       listingQueue = new ListingQueue(
         telegramService,
@@ -164,6 +201,9 @@ async function startBot() {
       
     } else {
       console.log("⚠️ Aucun trader initialisé - Mode surveillance uniquement");
+      
+      // Envoyer le message de démarrage avec balance 0
+      await telegramService.sendBotReady(0);
     }
 
 
@@ -283,114 +323,34 @@ async function startBot() {
         }
       } else {
         // Fallback vers l'ancien système si l'orchestrateur n'est pas disponible
-      if (listingQueue && traderInitialized) {
+        if (listingQueue && traderInitialized) {
           if (!isRailway) {
-        console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
+            console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
           }
-        listingQueue.addListing(symbol, metadata, source);
-        
-        // Vérification immédiate pour les WebSockets (déjà listés)
-        if (source === 'websocket') {
+          listingQueue.addListing(symbol, metadata, source);
+          
+          // Vérification immédiate pour les WebSockets (déjà listés)
+          if (source === 'websocket') {
             if (!isRailway) {
-          console.log(`🔍 Vérification immédiate pour ${symbol} (WebSocket)`);
+              console.log(`🔍 Vérification immédiate WebSocket pour ${symbol}`);
             }
-          const hasPerp = await hyperliquidTrader?.hasPerp(symbol);
-          if (hasPerp) {
-            console.log(`✅ ${symbol} immédiatement disponible sur Hyperliquid !`);
-            // Le trade sera géré par la file d'attente
-          } else {
-              if (!isRailway) {
-            console.log(`⏳ ${symbol} pas encore disponible, surveillance en cours...`);
-              }
+            // Note: processImmediate n'existe pas, on utilise addListing
           }
-        } else {
-            if (!isRailway) {
-          console.log(`⏳ ${symbol} ajouté à la file d'attente pour surveillance continue...`);
-            }
         }
-      } else {
-          if (!isRailway) {
-        console.log(`📊 Listing détecté: ${symbol} (Mode surveillance uniquement - Hyperliquid non configuré)`);
       }
     }
-      }
-    }
-
-    console.log("🎉 Bot initialisé avec succès !");
-    console.log("📊 Mode:", process.env.DRY_RUN === '1' ? 'DRY RUN' : 'PRODUCTION');
-    console.log("💰 Balance:", await checkBalance());
-    console.log("🔍 Surveillance active...");
-
   } catch (error) {
-    console.error("❌ Erreur lors de l'initialisation du bot:", error);
-    process.exit(1);
+    console.error('❌ Erreur critique dans startBot:', error);
+    
+    // Notification d'erreur critique
+    if (telegramService) {
+      await telegramService.sendBotReady(0); // Fallback simple
+    }
   }
 }
 
-// Gestion des signaux d'arrêt
-const gracefulShutdown = async (signal: string) => {
-  console.log(`\n🛑 Arrêt du bot (${signal})...`);
-  try {
-    // Notification d'arrêt
-    console.log(`🛑 Bot arrêté par signal: ${signal}`);
-    
-    // Arrêter tous les modules
-    // if (listingSource) {
-    //   listingSource.stopListening();
-    // }
-    
-
-    
-
-    
-    // Arrêter la surveillance des listings coréens
-    if (listingSurveillance) {
-      listingSurveillance.stop();
-      console.log('✅ Surveillance des listings coréens arrêtée');
-    }
-    
-    // Arrêter le monitoring global
-    if (globalTokenManager) {
-      globalTokenManager.stopGlobalMonitoring();
-      console.log('✅ Monitoring global arrêté');
-    }
-    
-    // Arrêter la file d'attente
-    if (listingQueue) {
-      listingQueue.stopMonitoring();
-      console.log('✅ File d\'attente arrêtée');
-    }
-    
-    // Envoyer rapport final
-    if (performanceMonitor) {
-      await performanceMonitor.sendDailyReport();
-    }
-    
-    console.log('✅ Arrêt propre terminé');
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ Erreur lors de l\'arrêt:', error);
-    process.exit(1);
-  }
-};
-
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-// Gestion des erreurs non capturées
-process.on('uncaughtException', async (error) => {
-  console.error('❌ Erreur non capturée:', error);
-  console.error(`🚨 ERREUR FATALE: Bot arrêté par erreur: ${error.message}`);
+// Démarrer le bot
+startBot().catch(error => {
+  console.error('❌ Erreur fatale au démarrage du bot:', error);
   process.exit(1);
 });
-
-process.on('unhandledRejection', async (reason, promise) => {
-  console.error('❌ Promesse rejetée non gérée:', reason);
-  console.error(`🚨 ERREUR PROMESSE: Bot arrêté par promesse rejetée: ${String(reason)}`);
-  process.exit(1);
-});
-
-// Démarrer le bot avec un délai pour laisser le health check se stabiliser
-setTimeout(() => {
-  startBot();
-}, 2000);

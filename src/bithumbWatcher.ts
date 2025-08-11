@@ -128,10 +128,10 @@ export class BithumbWatcher {
 
   private handleWebSocketMessage(message: any): void {
     try {
-      // Log de surveillance coréenne
-      if (process.env.ENABLE_KOREAN_LOGS === 'true') {
-        console.log(`🇰🇷 WebSocket Bithumb actif - ${new Date().toLocaleTimeString()}`);
-      }
+      // Log de surveillance coréenne - DÉSACTIVÉ pour éviter le spam
+      // if (process.env.ENABLE_KOREAN_LOGS === 'true') {
+      //   console.log(`🇰🇷 WebSocket Bithumb actif - ${new Date().toLocaleTimeString()}`);
+      // }
 
       // Vérifier si c'est un nouveau listing
       if (message.type === 'ticker' && message.content) {
@@ -166,9 +166,9 @@ export class BithumbWatcher {
       }
       
       // Gérer les messages de statut
-      if (message.status === '0000') {
-        console.log('✅ Message WebSocket Bithumb traité avec succès');
-      }
+      // if (message.status === '0000') {
+      //   console.log('✅ Message WebSocket Bithumb traité avec succès');
+      // }
       
     } catch (error) {
       console.error('❌ Erreur traitement message WebSocket:', error);
