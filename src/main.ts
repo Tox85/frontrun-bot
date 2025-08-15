@@ -1,372 +1,471 @@
-import { checkBalance, setHyperliquidTrader, setBybitTrader } from "./trader";
-import { TelegramService } from "./telegramService";
-import { startHealthCheck } from './healthCheck';
+import 'dotenv/config';
+import { BaselineManager } from './core/BaselineManager';
+import { ExchangeManager } from './exchanges/ExchangeManager';
+import { TradeExecutor } from './trade/TradeExecutor';
+import { ExitScheduler } from './trade/ExitScheduler';
+import { PositionSizer } from './trade/PositionSizer';
+import { PerpCatalog } from './store/PerpCatalog';
+import { TokenRegistry } from './store/TokenRegistry';
+import { TelegramService } from './notify/TelegramService';
+import { HttpServer } from './api/HttpServer';
+import { SingletonGuard } from './core/SingletonGuard';
+import { NoticeClient } from './watchers/NoticeClient';
+import { BithumbWSWatcher } from './watchers/BithumbWSWatcher';
+import { Database } from 'sqlite3';
+import { MigrationRunner } from './store/Migrations';
 
-import { HyperliquidTrader } from './hyperliquidTrader';
-import { BinanceTrader } from './binanceTrader';
-import { BybitTrader } from './bybitTrader';
-import { validateHyperliquidConfig } from './hyperliquidConfig';
-import { TradeRetryManager } from './retryManager';
-import { PerformanceMonitor } from './performanceMonitor';
-import { RiskManager } from './riskManager';
-import { DiagnosticTool } from './diagnostic';
-import { ListingQueue } from './listingQueue';
-import { GlobalTokenManager } from './globalTokenManager';
-import { PositionOrchestrator, ListingEvent } from './execution/positionOrchestrator';
-import { ListingSurveillance, KoreanListingEvent } from './listingSurveillance';
+// Configuration
+const CONFIG = {
+  // Bithumb
+  BITHUMB_API_KEY: process.env.BITHUMB_API_KEY || '',
+  BITHUMB_SECRET: process.env.BITHUMB_SECRET || '',
+  
+  // Telegram
+  TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
+  TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
+  
+  // Exchanges
+  BYBIT_API_KEY: process.env.BYBIT_API_KEY || '',
+  BYBIT_SECRET: process.env.BYBIT_SECRET || '',
+  HYPERLIQUID_API_KEY: process.env.HYPERLIQUID_API_KEY || '',
+  HYPERLIQUID_SECRET: process.env.HYPERLIQUID_SECRET || '',
+  BINANCE_API_KEY: process.env.BINANCE_API_KEY || '',
+  BINANCE_SECRET: process.env.BINANCE_SECRET || '',
+  
+  // Trading
+  TRADING_ENABLED: process.env.TRADING_ENABLED === 'true',
+  MAX_POSITION_SIZE_USD: parseFloat(process.env.MAX_POSITION_SIZE_USD || '100'),
+  RISK_PERCENT: parseFloat(process.env.RISK_PERCENT || '2'),
+  
+  // Polling
+  T0_POLL_INTERVAL_MS: parseInt(process.env.T0_POLL_INTERVAL_MS || '5000'),
+  T0_MAX_NOTICES_PER_POLL: parseInt(process.env.T0_MAX_NOTICES_PER_POLL || '10'),
+  
+  // WebSocket
+  WS_ENABLED: process.env.WS_ENABLED !== 'false',
+  WS_DEBOUNCE_MS: parseInt(process.env.WS_DEBOUNCE_MS || '100'),
+  WS_WARMUP_MS: parseInt(process.env.WS_WARMUP_MS || '5000'),
+  
+  // HTTP Server
+  HTTP_PORT: parseInt(process.env.HTTP_PORT || '3000'),
+  
+  // Database
+  DATABASE_PATH: process.env.DATABASE_PATH || './data/bot.db',
 
-// Configuration centralisée
-import { CONFIG, logConfigSummary, validateConfig } from './config/env';
+  // Hyperliquid
+  HYPERLIQUID_WALLET_ADDRESS: process.env.HYPERLIQUID_WALLET_ADDRESS || ''
+};
 
-console.log("🚀 Frontrun Bot is running!");
-
-// Log de la configuration au démarrage
-logConfigSummary();
-
-// Validation de la configuration
-const configValidation = validateConfig();
-if (!configValidation.isValid) {
-  console.error('❌ Erreurs de configuration critiques:');
-  configValidation.errors.forEach(error => console.error(`  - ${error}`));
-  if (CONFIG.IS_PROD) {
-    console.error('🚨 Arrêt du bot en production à cause d\'erreurs de configuration');
-    process.exit(1);
-  } else {
-    console.warn('⚠️ Continuation en mode développement malgré les erreurs');
-  }
-}
-
-if (configValidation.warnings.length > 0) {
-  console.warn('⚠️ Avertissements de configuration:');
-  configValidation.warnings.forEach(warning => console.warn(`  - ${warning}`));
-}
-
-// Variables globales
-let traderInitialized = false;
-
-let hyperliquidTrader: HyperliquidTrader | undefined = undefined;
-let telegramService: TelegramService | null = null;
-let retryManager: TradeRetryManager | null = null;
-let performanceMonitor: PerformanceMonitor | null = null;
-let riskManager: RiskManager | null = null;
-let listingQueue: ListingQueue | null = null;
-let globalTokenManager: GlobalTokenManager | null = null;
-let positionOrchestrator: PositionOrchestrator | null = null;
-let listingSurveillance: ListingSurveillance | null = null;
-
-
-
-async function startBot() {
+async function main() {
+  console.log('🚀 Starting Frontrun Bot - Ultra-Competitive Edition...');
+  
   try {
-    console.log("🤖 Initialisation du bot...");
+    // 1. Initialiser la base de données et les migrations
+    console.log('🗄️ Initializing database...');
+    const db = new Database(CONFIG.DATABASE_PATH);
     
-    // Validation de la configuration Railway
-    // const railwayConfig = validateRailwayConfig(); // This line is removed
-    // const configErrors = getMissingConfigErrors(); // This line is removed
+    console.log('🔄 Running database migrations...');
+    const migrationRunner = new MigrationRunner(db);
+    await migrationRunner.runMigrations();
+    console.log('✅ Database migrations completed');
     
-    // if (configErrors.length > 0) { // This block is removed
-    //   console.error("❌ Erreurs de configuration Railway:"); // This block is removed
-    //   configErrors.forEach(error => console.error(`  - ${error}`)); // This block is removed
-    //   console.error("⚠️ Le bot continuera en mode surveillance uniquement"); // This block is removed
-    // } // This block is removed
+    // 2. Vérifier le leadership (SingletonGuard)
+    console.log('👑 Checking leadership...');
+    const singletonGuard = new SingletonGuard(db);
+    const isLeader = await singletonGuard.tryAcquireLeadership();
     
-    // Diagnostic système au démarrage
-    console.log("🔍 Exécution du diagnostic système...");
-    const diagnosticTool = new DiagnosticTool();
-    await diagnosticTool.runDiagnostic();
-    
-    // Initialiser le rapporteur de statut
-    // const statusReporter = new StatusReporter();
-    // statusReporter.startReporting();
-    // DÉSACTIVÉ - Rapport automatique toutes les 2h (source possible de spam)
-    
-    // Valider la configuration Hyperliquid
-    validateHyperliquidConfig();
-    
-    // Initialiser le service Telegram sécurisé
-    telegramService = new TelegramService();
-    
-    // Initialiser les nouveaux modules
-    console.log("📊 Initialisation des modules avancés...");
-    retryManager = new TradeRetryManager(telegramService);
-    performanceMonitor = new PerformanceMonitor(telegramService);
-    riskManager = new RiskManager(telegramService);
-    // Article scraper désactivé (Cloudflare protection)
-
-    // Initialiser le gestionnaire de tokens globaux
-    console.log("🌍 Initialisation du gestionnaire de tokens globaux...");
-    globalTokenManager = new GlobalTokenManager(telegramService);
-    
-    // Désactiver la surveillance globale par défaut - Focus sur Coré
-    if (CONFIG.ENABLE_GLOBAL_MONITORING) {
-      globalTokenManager.startGlobalMonitoring();
-    } else {
-      console.log("⏸️ Surveillance globale désactivée - Focus sur frontrunning coréen");
-    }
-
-    // Initialiser la surveillance des listings coréens
-    console.log("🇰🇷 Initialisation de la surveillance des listings coréens...");
-    listingSurveillance = new ListingSurveillance(handleNewListing);
-    await listingSurveillance.start();
-
-
-
-    // Initialiser les traders
-    console.log("💰 Initialisation des traders...");
-    
-    let tradersInitialized = 0;
-    
-         // Initialiser Hyperliquid (priorité)
-     if (CONFIG.HL_ENABLED) {
-       console.log("🔧 Initialisation du trader Hyperliquid...");
-       try {
-         hyperliquidTrader = new HyperliquidTrader();
-         const hlInitialized = await hyperliquidTrader.initialize();
-         if (hlInitialized) {
-           console.log("✅ Trader Hyperliquid initialisé avec succès");
-           traderInitialized = true;
-           tradersInitialized++;
-           // Synchroniser avec trader.ts
-           setHyperliquidTrader(hyperliquidTrader);
-         } else {
-           console.log("⚠️ Échec initialisation Hyperliquid");
-         }
-       } catch (error) {
-         console.error("❌ Erreur initialisation Hyperliquid:", error);
-       }
-     } else {
-       console.log("⏸️ Hyperliquid désactivé (HL_ENABLED != 1)");
-     }
-
-    // Initialiser Binance (si activé)
-    let binanceTrader: BinanceTrader | undefined = undefined;
-    if (CONFIG.BINANCE_ENABLED) {
-      console.log("🔧 Initialisation du trader Binance...");
-      try {
-        binanceTrader = new BinanceTrader(telegramService);
-        const binanceInitialized = await binanceTrader.initialize();
-        if (binanceInitialized) {
-          console.log("✅ Trader Binance initialisé avec succès");
-          if (!traderInitialized) traderInitialized = true;
-          tradersInitialized++;
-        } else {
-          console.log("⚠️ Échec initialisation Binance");
-        }
-      } catch (error) {
-        console.error("❌ Erreur initialisation Binance:", error);
-      }
-    } else {
-      console.log("⏸️ Binance désactivé (BINANCE_ENABLED != 1)");
-    }
-
-    // Initialiser Bybit (si activé)
-    let bybitTrader: BybitTrader | undefined = undefined;
-    if (CONFIG.BYBIT_ENABLED) {
-      console.log("🔧 Initialisation du trader Bybit...");
-      try {
-        bybitTrader = new BybitTrader();
-        const bybitInitialized = await bybitTrader.initialize();
-        if (bybitInitialized) {
-          console.log("✅ Trader Bybit initialisé avec succès");
-          if (!traderInitialized) traderInitialized = true;
-          tradersInitialized++;
-        } else {
-          console.log("⚠️ Échec initialisation Bybit");
-        }
-      } catch (error) {
-        console.error("❌ Erreur initialisation Bybit:", error);
-      }
-    } else {
-      console.log("⏸️ Bybit désactivé (BYBIT_ENABLED != 1)");
-    }
-    
-    console.log(`📊 Résumé traders: ${tradersInitialized} trader(s) initialisé(s)`);
-    
-    if (traderInitialized) {
-      console.log("✅ Au moins un trader initialisé avec succès");
-      
-      // Vérifier la balance APRÈS l'initialisation des traders
-      console.log("💰 Vérification de la balance...");
-      const balance = await checkBalance();
-      console.log(`💰 Balance disponible: ${balance.available} USDC`);
-      
-      // Envoyer le message de démarrage avec la vraie balance
-      await telegramService.sendBotReady(balance.available);
-      
-      // Initialiser l'orchestrateur de positions
-      console.log("🎯 Initialisation de l'orchestrateur de positions...");
-      positionOrchestrator = new PositionOrchestrator(
-        hyperliquidTrader,
-        binanceTrader,
-        bybitTrader,
-        telegramService,
-        riskManager,
-        performanceMonitor,
-        retryManager
+    if (!isLeader) {
+      console.log('👀 Running in OBSERVER_MODE - not the leader instance');
+      // En mode observateur, on peut toujours démarrer le serveur HTTP pour le monitoring
+      const httpServer = new HttpServer(
+        new TokenRegistry(db),
+        new PerpCatalog(db),
+        singletonGuard,
+        null,
+        null,
+        new TelegramService({ botToken: '', chatId: '' }),
+        null
       );
-      console.log("✅ Orchestrateur de positions initialisé");
+      await httpServer.start();
+      console.log(`🌐 HTTP Server started on port ${CONFIG.HTTP_PORT} (OBSERVER_MODE)`);
       
-      // Initialiser la file d'attente avec l'orchestrateur
-      listingQueue = new ListingQueue(
-        telegramService,
-        hyperliquidTrader,
-        riskManager,
-        performanceMonitor
-      );
-      console.log("✅ File d'attente initialisée");
+      // Garder l'instance en vie pour le monitoring
+      process.on('SIGINT', async () => {
+        console.log('🛑 Shutting down observer instance...');
+        await httpServer.stop();
+        db.close();
+        process.exit(0);
+      });
       
-    } else {
-      console.log("⚠️ Aucun trader initialisé - Mode surveillance uniquement");
-      
-      // Envoyer le message de démarrage avec balance 0
-      await telegramService.sendBotReady(0);
+      return;
     }
-
-
-
-    // Démarrer le health check
-    console.log("🏥 Démarrage du health check...");
-    startHealthCheck();
-    console.log("✅ Health check démarré");
-
-
-
-    // Surveillance articles Bithumb désactivée (Cloudflare protection)
-      console.log("📰 Surveillance articles Bithumb désactivée (Cloudflare protection)");
-
-    // Gestionnaire des nouveaux listings avec monitoring et analyse globale
-    async function handleNewListing(listing: KoreanListingEvent) {
-      const detectionStart = Date.now();
-      const symbol = listing.symbol;
-      const metadata = {
-        exchange: listing.exchange,
-        source: listing.exchange === 'BITHUMB' ? 'websocket' : 'api',
-        price: listing.price,
-        volume: listing.volume,
-        timestamp: listing.timestamp,
-        fullSymbol: listing.fullSymbol
-      };
+    
+    console.log('👑 Running as LEADER instance');
+    
+    // Debug: Afficher la configuration Hyperliquid
+    console.log('🔧 Hyperliquid Config Debug:');
+    console.log(`   • API Key: ${CONFIG.HYPERLIQUID_API_KEY ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   • Wallet Address: ${CONFIG.HYPERLIQUID_WALLET_ADDRESS ? '✅ SET' : '❌ NOT SET'}`);
+    console.log(`   • Wallet Value: ${CONFIG.HYPERLIQUID_WALLET_ADDRESS || 'EMPTY'}`);
+    
+    // Debug: Afficher la configuration WebSocket
+    console.log('🔧 WebSocket Config Debug:');
+    console.log(`   • WS_ENABLED: ${CONFIG.WS_ENABLED ? '✅ TRUE' : '❌ FALSE'}`);
+    console.log(`   • WS_DEBOUNCE_MS: ${CONFIG.WS_DEBOUNCE_MS}ms`);
+    console.log(`   • WS_WARMUP_MS: ${CONFIG.WS_WARMUP_MS}ms`);
+    
+    // 3. Initialiser les composants de base
+    console.log('🔧 Initializing core components...');
+    
+    const tokenRegistry = new TokenRegistry(db);
+    await tokenRegistry.initialize();
+    
+    const perpCatalog = new PerpCatalog(db);
+    await perpCatalog.initialize();
+    
+    const telegramService = new TelegramService({
+      botToken: CONFIG.TELEGRAM_BOT_TOKEN,
+      chatId: CONFIG.TELEGRAM_CHAT_ID
+    });
+    
+    const baselineManager = new BaselineManager(tokenRegistry);
+    await baselineManager.initialize();
+    
+    const exchangeManager = new ExchangeManager({
+      hyperliquid: {
+        testnet: true,
+        privateKey: CONFIG.HYPERLIQUID_API_KEY,
+        walletAddress: CONFIG.HYPERLIQUID_WALLET_ADDRESS,
+        baseUrl: 'https://api.hyperliquid-testnet.xyz',
+        timeoutMs: 10000
+      },
+      ...(CONFIG.BYBIT_API_KEY ? {
+        bybit: {
+          apiKey: CONFIG.BYBIT_API_KEY,
+          secretKey: CONFIG.BYBIT_SECRET,
+          testnet: false,
+          baseUrl: 'https://api.bybit.com',
+          timeoutMs: 10000
+        }
+      } : {}),
+      ...(CONFIG.BINANCE_API_KEY ? {
+        binance: {
+          apiKey: CONFIG.BINANCE_API_KEY,
+          secretKey: CONFIG.BINANCE_SECRET,
+          testnet: false,
+          baseUrl: 'https://api.binance.com',
+          timeoutMs: 10000
+        }
+      } : {})
+    });
+    await exchangeManager.initialize();
+    
+    const positionSizer = PositionSizer.getInstance();
+    const exitScheduler = ExitScheduler.getInstance();
+    
+    // Vérifier que Hyperliquid est disponible
+    const hyperliquid = exchangeManager.getHyperliquid();
+    if (!hyperliquid) {
+      console.log('⚠️ Hyperliquid adapter not available, running in advanced monitoring mode');
       
-      if (CONFIG.IS_RAILWAY) {
-        // Logs compacts pour Railway
-        console.log(`🆕 NOUVEAU LISTING: ${symbol} | ${metadata.exchange || metadata.source || 'N/A'} | ${metadata.price || 'N/A'}`);
-      } else {
-        // Logs détaillés pour développement
-      console.log(`🆕 NOUVEAU LISTING DÉTECTÉ !`);
-        console.log(`📊 Symbole : ${symbol}`);
-      if (metadata) {
-          console.log(`🏢 Exchange : ${metadata.exchange || metadata.source || 'N/A'}`);
-          console.log(`🔗 Marché complet : ${metadata.fullSymbol || symbol}`);
-          console.log(`💰 Prix : ${metadata.price || 'N/A'}`);
-          console.log(`📈 Volume : ${metadata.volume || 'N/A'}`);
-          console.log(`⏰ Timestamp : ${new Date(metadata.timestamp || Date.now()).toLocaleString()}`);
-        }
-        console.log(`⚡ Temps de détection : ${Date.now() - detectionStart}ms`);
-        console.log(`---`);
+      // 4. Initialiser les watchers en mode monitoring avancé
+      console.log('👀 Initializing advanced monitoring watchers...');
+      
+      // T0: NoticeClient ultra-compétitif
+      const noticeClient = new NoticeClient();
+      console.log('📡 NoticeClient initialized for ultra-competitive T0 detection');
+      
+      // T2: WebSocket Bithumb
+      let wsWatcher: BithumbWSWatcher | null = null;
+      if (CONFIG.WS_ENABLED) {
+        wsWatcher = new BithumbWSWatcher(
+          tokenRegistry,
+          {
+            wsUrl: 'wss://pubwss.bithumb.com/pub/ws',
+            debounceMs: CONFIG.WS_DEBOUNCE_MS,
+            warmupMs: CONFIG.WS_WARMUP_MS
+          }
+        );
+        console.log('🔌 WebSocket watcher initialized');
       }
-
-      // Enregistrer la détection
-      if (performanceMonitor) {
-        performanceMonitor.recordDetection(symbol, Date.now() - detectionStart);
-      }
-
-      // Notification Telegram sécurisée
-      const price = metadata?.price ? metadata.price.toString() : 'N/A';
-      const exchange = metadata?.exchange || metadata.source || 'N/A';
-      await telegramService?.sendNewListing(symbol, price, exchange);
-
-      // ANALYSE GLOBALE - Vérifier si le token est listé globalement
-      if (globalTokenManager) {
-        if (!CONFIG.IS_RAILWAY) {
-          console.log(`🌍 Analyse globale pour ${symbol}...`);
-        }
-        const analysis = await globalTokenManager.analyzeKoreanListing(symbol, metadata);
-        
-        // Log de l'analyse
-        if (CONFIG.IS_RAILWAY) {
-          console.log(`📊 Analyse: ${symbol} | ${analysis.eventType} | ${analysis.priority}`);
-        } else {
-          console.log(`📊 Résultat analyse: ${analysis.eventType} - Priorité: ${analysis.priority}`);
-        }
-        
-        // Si c'est un trigger bullish coréen avec perp disponible, action immédiate
-        if (analysis.eventType === 'bullish_korean_trigger' && analysis.recommendedExchange) {
-          console.log(`🔥 TRIGGER BULLISH DÉTECTÉ - Action immédiate recommandée sur ${analysis.recommendedExchange}`);
-        }
-      }
-
-      // Déterminer la source du listing
-      let source: 'announcement' | 'websocket' | 'api' = 'api';
-      if (metadata?.source?.includes('Article') || metadata?.source?.includes('announcement')) {
-        source = 'announcement';
-      } else if (metadata?.source?.includes('WebSocket')) {
-        source = 'websocket';
-      }
-
-      // NOUVEAU SYSTÈME - Utiliser l'orchestrateur de positions
-      if (positionOrchestrator && traderInitialized) {
-        const listingEvent: ListingEvent = {
-          symbol,
-          metadata,
-          detectionTime: Date.now(),
-          id: `${Date.now()}-${symbol}` // ID unique pour l'idempotency
-        };
-
-        console.log(`🎯 Tentative d'ouverture de position pour ${symbol}...`);
-        
+      
+      // 5. Démarrer les composants
+      console.log('🚀 Starting advanced monitoring components...');
+      
+      // Démarrer le polling T0 ultra-compétitif
+      console.log('📡 Starting T0 detection...');
+      let t0Polls = 0;
+      const t0Interval = setInterval(async () => {
         try {
-          const tradeResult = await positionOrchestrator.openPositionForNewListing(listingEvent);
+          t0Polls++;
+          console.log(`📡 T0 Poll #${t0Polls} - Checking for new listings...`);
           
-          if (tradeResult.success) {
-            console.log(`✅ Position ouverte avec succès: ${symbol} sur ${tradeResult.venue}`);
-          } else {
-            console.log(`❌ Échec ouverture position: ${symbol} - ${tradeResult.error}`);
-            
-            // Fallback vers l'ancien système de file d'attente
-            if (listingQueue) {
-              console.log(`📋 Ajout de ${symbol} à la file d'attente (fallback)`);
-              listingQueue.addListing(symbol, metadata, source);
+          const listings = await noticeClient.getLatestListings(CONFIG.T0_MAX_NOTICES_PER_POLL);
+          
+          for (const listing of listings) {
+            // Vérifier si c'est un nouveau token
+            const isNew = await tokenRegistry.isNew(listing.base);
+            if (isNew) {
+              console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
+              
+              // Enregistrer le nouveau token
+              await tokenRegistry.addProcessedEvent({
+                eventId: listing.eventId,
+                base: listing.base,
+                url: listing.url,
+                tradeTimeUtc: listing.publishedAtUtc,
+                source: 'bithumb.notice'
+              });
+              
+              // Notification Telegram
+              if (CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID) {
+                const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **ULTRA-COMPETITIVE T0 DETECTION** ⚡\n\n💰 **TRADING DISABLED** - Hyperliquid connection issue`;
+                await telegramService.sendMessage(message);
+              }
+              
+              console.log(`💰 Trade execution disabled (Hyperliquid connection issue)`);
             }
           }
+          
+          if (listings.length > 0) {
+            console.log(`✅ T0 Poll #${t0Polls}: Found ${listings.length} listings`);
+          }
+          
         } catch (error) {
-          console.error(`❌ Erreur orchestrateur pour ${symbol}:`, error);
-          
-          // Fallback vers l'ancien système
-          if (listingQueue) {
-            console.log(`📋 Ajout de ${symbol} à la file d'attente (erreur)`);
-            listingQueue.addListing(symbol, metadata, source);
-          }
+          console.error(`❌ T0 Poll #${t0Polls} failed:`, error);
         }
-      } else {
-        // Fallback vers l'ancien système si l'orchestrateur n'est pas disponible
-        if (listingQueue && traderInitialized) {
-          if (!CONFIG.IS_RAILWAY) {
-            console.log(`📋 Ajout de ${symbol} à la file d'attente (source: ${source})`);
-          }
-          listingQueue.addListing(symbol, metadata, source);
-          
-          // Vérification immédiate pour les WebSockets (déjà listés)
-          if (source === 'websocket') {
-            if (!CONFIG.IS_RAILWAY) {
-              console.log(`🔍 Vérification immédiate WebSocket pour ${symbol}`);
-            }
-            // Note: processImmediate n'existe pas, on utilise addListing
-          }
-        }
+      }, CONFIG.T0_POLL_INTERVAL_MS);
+      
+      // Démarrer le WebSocket T2
+      if (wsWatcher) {
+        await wsWatcher.start();
+        console.log('🔌 WebSocket watcher started');
       }
+      
+      // 6. Démarrer le serveur HTTP
+      console.log('🌐 Starting HTTP server...');
+      const httpServer = new HttpServer(
+        tokenRegistry,
+        perpCatalog,
+        singletonGuard,
+        null, // noticePoller
+        wsWatcher,
+        telegramService,
+        null // tradeExecutor
+      );
+      await httpServer.start();
+      console.log(`✅ HTTP Server started on port ${CONFIG.HTTP_PORT}`);
+      
+      // 7. Log du statut
+      console.log('\n🎯 Bot Status:');
+      console.log(`   • Leadership: ✅ LEADER`);
+      console.log(`   • T0 Detection: ✅ ACTIVE (${CONFIG.T0_POLL_INTERVAL_MS}ms interval)`);
+      console.log(`   • T2 Detection: ${wsWatcher ? '✅ ACTIVE' : '❌ DISABLED'}`);
+      console.log(`   • Trading: ❌ DISABLED (Hyperliquid connection issue)`);
+      console.log(`   • Hyperliquid: ❌ CONNECTION FAILED (HTTP 405)`);
+      console.log(`   • Telegram: ${CONFIG.TELEGRAM_BOT_TOKEN ? '✅ CONFIGURED' : '❌ NOT CONFIGURED'}`);
+      console.log(`   • HTTP Server: ✅ PORT ${CONFIG.HTTP_PORT}`);
+      
+      // 8. Gestion de l'arrêt
+      process.on('SIGINT', async () => {
+        console.log('\n🛑 Shutting down bot...');
+        
+        clearInterval(t0Interval);
+        
+        if (wsWatcher) {
+          await wsWatcher.stop();
+        }
+        
+        await httpServer.stop();
+        await singletonGuard.releaseLeadership();
+        db.close();
+        
+        console.log('✅ Bot shutdown complete');
+        process.exit(0);
+      });
+      
+      console.log('\n🚀 Bot is running in ADVANCED MONITORING MODE! Press Ctrl+C to stop.');
+      console.log('🔧 Hyperliquid issue: HTTP 405 on /info endpoint - check API documentation');
+      return;
     }
-  } catch (error) {
-    console.error('❌ Erreur critique dans startBot:', error);
+
+    console.log('✅ Hyperliquid adapter available - trading mode activated');
+
+    // 4. Initialiser le TradeExecutor
+    console.log('💰 Initializing TradeExecutor...');
+    const tradeExecutor = new TradeExecutor(
+      hyperliquid,
+      exitScheduler,
+      positionSizer,
+      tokenRegistry,
+      perpCatalog,
+      telegramService,
+      {
+        riskPct: CONFIG.RISK_PERCENT / 100,
+        leverageTarget: 5,
+        cooldownHours: 24,
+        dryRun: false
+      }
+    );
+
+    // 5. Initialiser les watchers
+    console.log('👀 Initializing watchers...');
     
-    // Notification d'erreur critique
-    if (telegramService) {
-      await telegramService.sendBotReady(0); // Fallback simple
+    // T0: NoticeClient ultra-compétitif
+    const noticeClient = new NoticeClient();
+    console.log('📡 NoticeClient initialized for ultra-competitive T0 detection');
+    
+    // T2: WebSocket Bithumb
+    let wsWatcher: BithumbWSWatcher | null = null;
+    if (CONFIG.WS_ENABLED) {
+      wsWatcher = new BithumbWSWatcher(
+        tokenRegistry,
+        {
+          wsUrl: 'wss://pubwss.bithumb.com/pub/ws',
+          debounceMs: CONFIG.WS_DEBOUNCE_MS,
+          warmupMs: CONFIG.WS_WARMUP_MS
+        }
+      );
+      console.log('🔌 WebSocket watcher initialized');
     }
+    
+    // 6. Démarrer les composants
+    console.log('🚀 Starting components...');
+    
+    // Démarrer le polling T0 ultra-compétitif
+    console.log('📡 Starting T0 detection...');
+    let t0Polls = 0;
+    const t0Interval = setInterval(async () => {
+      try {
+        t0Polls++;
+        console.log(`📡 T0 Poll #${t0Polls} - Checking for new listings...`);
+        
+        const listings = await noticeClient.getLatestListings(CONFIG.T0_MAX_NOTICES_PER_POLL);
+        
+        for (const listing of listings) {
+          // Vérifier si c'est un nouveau token
+          const isNew = await tokenRegistry.isNew(listing.base);
+          if (isNew) {
+            console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
+            
+            // Enregistrer le nouveau token
+            await tokenRegistry.addProcessedEvent({
+              eventId: listing.eventId,
+              base: listing.base,
+              url: listing.url,
+              tradeTimeUtc: listing.publishedAtUtc,
+              source: 'bithumb.notice'
+            });
+            
+            // Notification Telegram
+            if (CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID) {
+              const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **ULTRA-COMPETITIVE T0 DETECTION** ⚡`;
+              await telegramService.sendMessage(message);
+            }
+            
+            // Exécuter le trade si activé
+            if (CONFIG.TRADING_ENABLED) {
+              try {
+                console.log(`💰 Executing trade for ${listing.base}...`);
+                await tradeExecutor.executeOpportunity({
+                  token: listing.base,
+                  source: 'T0_NOTICE',
+                  timestamp: new Date().toISOString()
+                });
+                console.log(`✅ Trade executed for ${listing.base}`);
+              } catch (tradeError) {
+                console.error(`❌ Trade execution failed for ${listing.base}:`, tradeError);
+              }
+            } else {
+              console.log(`💰 Trade execution disabled (TRADING_ENABLED=false)`);
+            }
+          }
+        }
+        
+        if (listings.length > 0) {
+          console.log(`✅ T0 Poll #${t0Polls}: Found ${listings.length} listings`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ T0 Poll #${t0Polls} failed:`, error);
+      }
+    }, CONFIG.T0_POLL_INTERVAL_MS);
+    
+    // Démarrer le WebSocket T2
+    if (wsWatcher) {
+      await wsWatcher.start();
+      console.log('🔌 WebSocket watcher started');
+    }
+    
+    // 7. Démarrer le serveur HTTP
+    console.log('🌐 Starting HTTP server...');
+    const httpServer = new HttpServer(
+      tokenRegistry,
+      perpCatalog,
+      singletonGuard,
+      null, // noticePoller
+      wsWatcher,
+      telegramService,
+      tradeExecutor,
+      {
+        port: CONFIG.HTTP_PORT,
+        host: '0.0.0.0',
+        enableCors: true,
+        enableLogging: true
+      }
+    );
+    await httpServer.start();
+    console.log(`✅ HTTP Server started on port ${CONFIG.HTTP_PORT}`);
+    
+    // 8. Log du statut
+    console.log('\n🎯 Bot Status:');
+    console.log(`   • Leadership: ✅ LEADER`);
+    console.log(`   • T0 Detection: ✅ ACTIVE (${CONFIG.T0_POLL_INTERVAL_MS}ms interval)`);
+    console.log(`   • T2 Detection: ${wsWatcher ? '✅ ACTIVE' : '❌ DISABLED'}`);
+    console.log(`   • Trading: ${CONFIG.TRADING_ENABLED ? '✅ ENABLED' : '❌ DISABLED'}`);
+    console.log(`   • Hyperliquid: ✅ CONNECTED (testnet)`);
+    console.log(`   • Telegram: ${CONFIG.TELEGRAM_BOT_TOKEN ? '✅ CONFIGURED' : '❌ NOT CONFIGURED'}`);
+    console.log(`   • HTTP Server: ✅ PORT ${CONFIG.HTTP_PORT}`);
+    
+    // 9. Gestion de l'arrêt
+    process.on('SIGINT', async () => {
+      console.log('\n🛑 Shutting down bot...');
+      
+      clearInterval(t0Interval);
+      
+      if (wsWatcher) {
+        await wsWatcher.stop();
+      }
+      
+      await httpServer.stop();
+      await singletonGuard.releaseLeadership();
+      db.close();
+      
+      console.log('✅ Bot shutdown complete');
+      process.exit(0);
+    });
+    
+    console.log('\n🚀 Bot is running in FULL TRADING MODE! Press Ctrl+C to stop.');
+    
+  } catch (error) {
+    console.error('❌ Failed to start bot:', error);
+    process.exit(1);
   }
 }
+
+// Gestion des erreurs non capturées
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
 
 // Démarrer le bot
-startBot().catch(error => {
-  console.error('❌ Erreur fatale au démarrage du bot:', error);
+main().catch((error) => {
+  console.error('💥 Main function failed:', error);
   process.exit(1);
 });

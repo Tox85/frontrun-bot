@@ -25,25 +25,26 @@ export const CONFIG = {
   NODE_ENV: toString(process.env.NODE_ENV, 'development'),
   IS_PROD: process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT,
   IS_RAILWAY: !!process.env.RAILWAY_ENVIRONMENT,
-  LOG_LEVEL: toString(process.env.LOG_LEVEL, 'info'),
+  LOG_LEVEL: toString(process.env.LOG_LEVEL, 'debug'), // Changé à debug par défaut
+  LOG_FORMAT: toString(process.env.LOG_FORMAT, process.env.NODE_ENV === 'production' ? 'json' : 'pretty'),
 
   // Ports
   PORT: toNumber(process.env.PORT, 3000),
   HEALTH_PORT: toNumber(process.env.HEALTH_PORT, 3000),
 
   // Hyperliquid
-  HL_ENABLED: toBool(process.env.HL_ENABLED),
-  HL_TESTNET: toBool(process.env.HL_TESTNET) || toBool(process.env.IS_DEMO),
+  HL_ENABLED: toBool(process.env.ENABLE_HYPERLIQUID),
+  HL_TESTNET: toBool(process.env.HYPERLIQUID_TESTNET) || toBool(process.env.IS_DEMO),
   HL_WALLET: toString(process.env.HYPERLIQUID_WALLET_ADDRESS),
   HL_PRIVATE_KEY: toString(process.env.HYPERLIQUID_PRIVATE_KEY),
   HL_API_URL: toString(process.env.HL_API_URL),
   HL_WS_URL: toString(process.env.HL_WS_URL),
 
   // Exchanges
-  UPBIT_ENABLED: toBool(process.env.UPBIT_ENABLED),
-  BITHUMB_ENABLED: toBool(process.env.BITHUMB_ENABLED),
-  BINANCE_ENABLED: toBool(process.env.BINANCE_ENABLED),
-  BYBIT_ENABLED: toBool(process.env.BYBIT_ENABLED),
+  UPBIT_ENABLED: toBool(process.env.ENABLE_UPBIT),
+  BITHUMB_ENABLED: toBool(process.env.ENABLE_BITHUMB),
+  BINANCE_ENABLED: toBool(process.env.ENABLE_BINANCE),
+  BYBIT_ENABLED: toBool(process.env.ENABLE_BYBIT),
 
   // Binance
   BINANCE_API_KEY: toString(process.env.BINANCE_API_KEY),
@@ -54,7 +55,7 @@ export const CONFIG = {
   BYBIT_SECRET: toString(process.env.BYBIT_SECRET),
 
   // Telegram
-  TELEGRAM_ENABLED: toBool(process.env.TELEGRAM_ENABLED),
+  TELEGRAM_ENABLED: toBool(process.env.ENABLE_TELEGRAM),
   TELEGRAM_BOT_TOKEN: toString(process.env.TELEGRAM_BOT_TOKEN),
   TELEGRAM_CHAT_ID: toString(process.env.TELEGRAM_CHAT_ID),
 
@@ -65,6 +66,7 @@ export const CONFIG = {
   POSITION_SIZE_USDC: toNumber(process.env.POSITION_SIZE_USDC, 400),
 
   // Risk Management
+  RISK_PER_TRADE_USD: toNumber(process.env.RISK_PER_TRADE_USD, 400), // Nouvelle variable
   RISK_PER_TRADE_USDC_DEFAULT: toNumber(process.env.RISK_PER_TRADE_USDC_DEFAULT, 0.5),
   RISK_PCT_OF_BAL: toNumber(process.env.RISK_PCT_OF_BAL, 0.04),
   MAX_LEVERAGE_DEFAULT: toNumber(process.env.MAX_LEVERAGE_DEFAULT, 25),
@@ -75,10 +77,26 @@ export const CONFIG = {
   // Monitoring
   ENABLE_GLOBAL_MONITORING: toBool(process.env.ENABLE_GLOBAL_MONITORING),
   ENABLE_KOREAN_LOGS: toBool(process.env.ENABLE_KOREAN_LOGS),
-  ENABLE_VERBOSE_LOGS: toBool(process.env.ENABLE_VERBOSE_LOGS),
+  ENABLE_VERBOSE_LOGS: toBool(process.env.ENABLE_VERBOSE_LOGS) || true, // Activé par défaut
 
   // Debug
   ENVZ_ENABLED: toBool(process.env.ENVZ_ENABLED),
+
+  // Nouvelles variables pour le bot optimisé
+  UPBIT_POLL_MS: toNumber(process.env.UPBIT_POLL_MS, 2000), // Polling exact 2s
+  EXIT_TIMEOUT_MINUTES: toNumber(process.env.EXIT_TIMEOUT_MINUTES, 3), // Sortie après 3 min
+  BINANCE_INDEX_REFRESH_MS: toNumber(process.env.BINANCE_INDEX_REFRESH_MS, 600000), // 10 min
+  SLIPPAGE_CAP_PCT: toNumber(process.env.SLIPPAGE_CAP_PCT, 2), // 2% de slippage max
+  SYMBOL_MUTEX_TTL_MS: toNumber(process.env.SYMBOL_MUTEX_TTL_MS, 300000), // 5 min TTL
+  HTTP_TOKEN: toString(process.env.HTTP_TOKEN, 'frontrun-bot-2024'), // Token simple pour /loglevel
+  
+  // Optimisations des timeouts et performances
+  UPBIT_TIMEOUT_MS: toNumber(process.env.UPBIT_TIMEOUT_MS, 15000), // Timeout Upbit augmenté à 15s
+  UPBIT_MAX_RETRIES: toNumber(process.env.UPBIT_MAX_RETRIES, 3), // Nombre max de tentatives Upbit
+  UPBIT_RETRY_DELAY_MS: toNumber(process.env.UPBIT_RETRY_DELAY_MS, 2000), // Délai entre tentatives
+  BINANCE_TIMEOUT_MS: toNumber(process.env.BINANCE_TIMEOUT_MS, 20000), // Timeout Binance à 20s
+  BINANCE_BATCH_SIZE: toNumber(process.env.BINANCE_BATCH_SIZE, 50), // Taille des lots pour l'indexation
+  API_RATE_LIMIT_MS: toNumber(process.env.API_RATE_LIMIT_MS, 100), // Délai entre appels API (100ms)
 } as const;
 
 // Export direct pour ENVZ_ENABLED

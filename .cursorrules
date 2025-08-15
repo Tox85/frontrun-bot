@@ -1,0 +1,19 @@
+{
+  "guidelines": [
+    "Always follow docs/BOT_RULES.md and the Base Consignes.",
+    "Analyze the entire repository line-by-line; remove dead/legacy code and Upbit detection paths.",
+    "Detection sources are exactly: Bithumb NoticePoller (HTTP) and Bithumb WS KRW. Do NOT add Upbit.",
+    "Do not send Telegram requests from anywhere except notify/TelegramService.",
+    "EventId must be deterministic: never include current timestamps.",
+    "All jobs/polls must be no-overlap with proper retry/backoff.",
+    "Enforce SingletonGuard: non-leader must run in OBSERVER_MODE (no trade/telegram).",
+    "Implement SQLite migrations runner; schema stored under migrations/ with versioning.",
+    "Expose /health with p95 latences and /metrics with ws.reconnects and exit.pending.",
+    "After each major step, present a short plan, then diffs, then run: npm run typecheck && npm run test && npm run build."
+  ],
+  "testCommands": [
+    "npm run typecheck",
+    "npm run test",
+    "npm run build"
+  ]
+}

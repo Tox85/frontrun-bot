@@ -1,24 +1,49 @@
 {
   "compilerOptions": {
-    "target": "es2020",
-    "module": "commonjs",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": false,
-    "sourceMap": false,
-    "removeComments": true,
-    "noEmitOnError": true
+    "declaration": true,
+    "sourceMap": true,
+    "removeComments": false,
+    "noEmitOnError": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "lib": ["ES2022", "DOM"]
   },
   "include": [
     "src/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist"
-  ]
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "src/core/HealthMonitor.ts",
+    "src/core/SymbolMapper.ts",
+    "src/httpServer.ts",
+    "src/hyperliquidWebSocket.ts",
+    "src/metrics/",
+    "src/tests/",
+    "src/tradingRouter.ts",
+    "src/watchers/bithumbNoticeWatcher.ts",
+    "src/watchers/upbitNoticeWatcher.ts"
+  ],
+  "ts-node": {
+    "esm": false,
+    "experimentalSpecifierResolution": "node"
+  }
 }

@@ -1,0 +1,68 @@
+/**
+ * Configuration centralisée des variables d'environnement
+ * Supporte les formats booléens multiples et validation robuste
+ */
+export declare const toBool: (value?: string) => boolean;
+export declare const toNumber: (value?: string, defaultValue?: number) => number;
+export declare const toString: (value?: string, defaultValue?: string) => string;
+export declare const CONFIG: {
+    readonly NODE_ENV: string;
+    readonly IS_PROD: boolean;
+    readonly IS_RAILWAY: boolean;
+    readonly LOG_LEVEL: string;
+    readonly LOG_FORMAT: string;
+    readonly PORT: number;
+    readonly HEALTH_PORT: number;
+    readonly HL_ENABLED: boolean;
+    readonly HL_TESTNET: boolean;
+    readonly HL_WALLET: string;
+    readonly HL_PRIVATE_KEY: string;
+    readonly HL_API_URL: string;
+    readonly HL_WS_URL: string;
+    readonly UPBIT_ENABLED: boolean;
+    readonly BITHUMB_ENABLED: boolean;
+    readonly BINANCE_ENABLED: boolean;
+    readonly BYBIT_ENABLED: boolean;
+    readonly BINANCE_API_KEY: string;
+    readonly BINANCE_SECRET: string;
+    readonly BYBIT_API_KEY: string;
+    readonly BYBIT_SECRET: string;
+    readonly TELEGRAM_ENABLED: boolean;
+    readonly TELEGRAM_BOT_TOKEN: string;
+    readonly TELEGRAM_CHAT_ID: string;
+    readonly TRADE_AMOUNT_USDT: number;
+    readonly LEVERAGE: number;
+    readonly STOP_LOSS_PERCENT: number;
+    readonly POSITION_SIZE_USDC: number;
+    readonly RISK_PER_TRADE_USD: number;
+    readonly RISK_PER_TRADE_USDC_DEFAULT: number;
+    readonly RISK_PCT_OF_BAL: number;
+    readonly MAX_LEVERAGE_DEFAULT: number;
+    readonly ORDER_TIMEOUT_MS: number;
+    readonly PERP_CHECK_TIMEOUT_MS: number;
+    readonly DRY_RUN: boolean;
+    readonly ENABLE_GLOBAL_MONITORING: boolean;
+    readonly ENABLE_KOREAN_LOGS: boolean;
+    readonly ENABLE_VERBOSE_LOGS: true;
+    readonly ENVZ_ENABLED: boolean;
+    readonly UPBIT_POLL_MS: number;
+    readonly EXIT_TIMEOUT_MINUTES: number;
+    readonly BINANCE_INDEX_REFRESH_MS: number;
+    readonly SLIPPAGE_CAP_PCT: number;
+    readonly SYMBOL_MUTEX_TTL_MS: number;
+    readonly HTTP_TOKEN: string;
+    readonly UPBIT_TIMEOUT_MS: number;
+    readonly UPBIT_MAX_RETRIES: number;
+    readonly UPBIT_RETRY_DELAY_MS: number;
+    readonly BINANCE_TIMEOUT_MS: number;
+    readonly BINANCE_BATCH_SIZE: number;
+    readonly API_RATE_LIMIT_MS: number;
+};
+export declare const ENVZ_ENABLED: boolean;
+export declare function validateConfig(): {
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+};
+export declare function getConfigSummary(): Record<string, any>;
+export declare function logConfigSummary(): void;
