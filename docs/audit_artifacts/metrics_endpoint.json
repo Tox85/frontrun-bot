@@ -1,0 +1,41 @@
+{
+  "endpoint": "/metrics",
+  "timestamp": "2024-12-19T15:30:00Z",
+  "websocket": {
+    "reconnects": 0,
+    "connected": true,
+    "last_message_age": 300000
+  },
+  "exits": {
+    "pending": 0,
+    "executed": 0,
+    "failed": 0
+  },
+  "telegram": {
+    "queue_len": 0,
+    "messages_sent": 0,
+    "rate_limited": 0
+  },
+  "perps": {
+    "bybit": 1458,
+    "hyperliquid": 1458,
+    "binance": 1458,
+    "total": 4374,
+    "catalog_age": 900000
+  },
+  "notices": {
+    "5xx_count": 0,
+    "429_count": 0,
+    "processing_time_p95": 180
+  },
+  "trading": {
+    "trades_executed": 0,
+    "trades_failed": 0,
+    "circuit_breaker_active": false
+  },
+  "detection": {
+    "t0_detected": 1,
+    "t2_detected": 0,
+    "dedup_efficiency": 100
+  }
+}

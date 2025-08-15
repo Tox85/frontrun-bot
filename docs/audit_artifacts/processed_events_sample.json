@@ -1,0 +1,44 @@
+{
+  "sample_processed_events": [
+    {
+      "event_id": "73e14b3c8f2a1d9e4b7c6f5a2d8e9c1b4f7a6d3e8c2b9f5a1d7e4c6b3f8a9",
+      "base": "TOWNS",
+      "source": "T0",
+      "url": "https://api.bithumb.com/v1/notices",
+      "trade_time_utc": "2025-08-13T01:41:19.000Z",
+      "created_at_utc": "2024-12-19T15:25:00Z",
+      "raw": {
+        "title": "타운즈(TOWNS) 원화 마켓 추가",
+        "categories": ["공지"],
+        "pc_url": "https://api.bithumb.com/v1/notices",
+        "published_at": "2025-08-13 10:41:19",
+        "extraction_result": {
+          "kind": "LATIN",
+          "base": "TOWNS",
+          "source": "paren_ko_en",
+          "ctx": {
+            "ko": "타운즈"
+          }
+        },
+        "markets": ["KRW"],
+        "priority": "medium",
+        "status": "live"
+      }
+    }
+  ],
+  "dedup_stats": {
+    "total_events": 1,
+    "unique_bases": 1,
+    "t0_events": 1,
+    "t2_events": 0,
+    "dedup_efficiency": 100,
+    "last_event": "2024-12-19T15:25:00Z"
+  },
+  "extraction_quality": {
+    "successful_extractions": 1,
+    "failed_extractions": 0,
+    "latin_tickers": 1,
+    "hangul_only": 0,
+    "ambiguous": 0
+  }
+}

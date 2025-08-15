@@ -1,33 +1,60 @@
-# BOT RULES — Bithumb-only, T0+T2 MVP
+# BOT RULES — Bithumb-only, Production Ready
 
-## Signal
-- **T0 (annonce)**: Bithumb NoticePoller HTTP (500–800 ms, ETag/If-Modified-Since, KST→UTC, parsing ko).
-- **T2 (ouverture)**: Bithumb WebSocket KRW.
-- Baseline KR = Bithumb REST ALL_KRW **au boot** ( aucun Detected pendant l'init ).
+## Architecture & Détection
+- **T0 (annonce)**: Bithumb NoticePoller HTTP (API publique notices, ≥1100ms, KST→UTC)
+- **T2 (ouverture)**: Bithumb WebSocket KRW (filet de sécurité)
+- **Baseline KR**: Bithumb REST ALL_KRW **au boot uniquement** (aucun Detected pendant l'init)
+- **Aucun Upbit**: détection strictement Bithumb-only
 
 ## Gating & Dédup
-- Nouveau si BASE ∉ baseline_kr.
-- eventId (notice): sha256({s:'bithumb.notice', b:BASE, u:url||'', m:markets_sorted, t:trade_time_iso||''})
-- eventId (ws): sha256({s:'bithumb.ws', b:BASE, u:'', m:['KRW'], t:''})
-- Jamais de timestamp courant dans l'ID.
-- processed_events en DB (insert-or-ignore).
+- Nouveau si BASE ∉ baseline_kr
+- eventId déterministe (pas de Date.now()):
+  - Notice: sha256("bithumb.notice|" + base + "|" + url + "|" + sorted_markets + "|" + trade_time_iso_opt)
+  - WS: sha256("bithumb.ws|" + base + "|KRW")
+- processed_events en DB (INSERT OR IGNORE, eventId UNIQUE)
 
-## Anti-spam
-- WS: double-check REST (3–5s) sur 1ère vue d'une base inconnue.
-- Debounce 10s par base; warm-up 5s après reconnect WS ; mutex par base.
-- Cooldown 24h après trade.
+## Anti-spam & Rate Limiting
+- WS: double-check REST (3–5s) sur 1ère vue d'une base inconnue
+- Debounce 10s par base; warm-up 5s après reconnect WS; mutex par base
+- Cooldown 24h après trade
+- RateLimiter: reset de fenêtre basé uniquement sur config exchange
 
-## Perps & Trade
-- PerpCatalog: refresh 10–15 min + lookup on-demand (Bybit→HL→Binance).
-- HL testnet only: **target_notional = balance * RISK_PCT * LEVERAGE_TARGET** ; ouvrir long immédiatement ; exit +180s (scheduler persistant, reduce-only).
-- Circuit breaker: 3 fails d'ordre consécutifs → TRADING_ENABLED=false + alerte.
+## Perps & Trading
+- PerpCatalog: refresh 10–15 min + lookup on-demand (Bybit→HL→Binance)
+- HL testnet only: target_notional = balance * RISK_PCT * LEVERAGE_TARGET
+- Exit +180s (scheduler persistant, reduce-only)
+- Circuit breaker: 3 fails d'ordre consécutifs → TRADING_ENABLED=false + alerte
+
+## Singleton & Leadership
+- Un seul leader actif; les autres en OBSERVER_MODE (aucun trade/telegram)
+- Instance lock en DB avec heartbeat
+- Failover automatique si leader down
+
+## Telegram
+- Un seul TelegramService avec queue 1 msg/s
+- Respect strict de retry_after sur 429
+- OBSERVER_MODE → aucun envoi
+- Dédup par eventId
 
 ## Observabilité
-- /health: bithumb_krw_tokens, sanity, leader_instance_id, OBSERVER_MODE, p95 detected→order_sent, p95 order_sent→ack.
-- /metrics: detected/opened/closed/errors, telegram.queue_len, **ws.reconnects**, **exit.pending**, perps_*.
+- **/health**: leader_instance_id, OBSERVER_MODE, baseline.krw_count, sanity, p95 latences
+- **/metrics**: ws.reconnects, exit.pending, telegram.queue_len, perps_*, notice.5xx
+- Alertes Telegram admin sur métriques critiques
+
+## Sécurité
+- Pas de log de secrets
+- Docker non-root
+- SQLite WAL
+- Endpoints sensibles protégés
+
+## Endpoints API
+- GET /health, /metrics, /baseline, /whoami, /status
+- POST /simulate/notice, /simulate/ws, /simulate/notify-burst
+- POST /trading/enable|disable
 
 ## Jamais faire
-- Upbit en détection ou marché-polling générant de faux listings.
-- Baseline KR alimentée par Binance/Bybit/HL.
-- Telegram hors TelegramService ou en parallèle.
-- EventId dépendant de l'heure courante.
+- Upbit en détection ou marché-polling
+- Baseline KR alimentée par Binance/Bybit/HL
+- Telegram hors TelegramService ou en parallèle
+- EventId dépendant de l'heure courante
+- Scraping du site web Bithumb (uniquement API notices)

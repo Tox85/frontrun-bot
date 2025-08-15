@@ -1,0 +1,41 @@
+{
+  "endpoint": "/health",
+  "timestamp": "2024-12-19T15:30:00Z",
+  "status": "healthy",
+  "instance": {
+    "id": "cd9ad578-afc9-4463-b432-18493c87969a",
+    "is_leader": true,
+    "observer_mode": false,
+    "uptime": 1800000
+  },
+  "baseline": {
+    "krw_count": 401,
+    "sanity": true,
+    "lastUpdated": "2024-12-19T15:00:00Z"
+  },
+  "detection": {
+    "t0_active": true,
+    "t2_active": true,
+    "last_detection": "2024-12-19T15:25:00Z"
+  },
+  "trading": {
+    "enabled": true,
+    "positions_open": 0,
+    "exits_pending": 0
+  },
+  "websocket": {
+    "connected": true,
+    "reconnects": 0,
+    "last_message": "2024-12-19T15:25:00Z"
+  },
+  "telegram": {
+    "enabled": true,
+    "queue_length": 0,
+    "observer_mode": false
+  },
+  "performance": {
+    "p95_detected_to_order": 150,
+    "p95_order_to_ack": 200,
+    "p95_notice_processing": 180
+  }
+}
