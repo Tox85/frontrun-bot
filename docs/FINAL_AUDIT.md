@@ -344,6 +344,12 @@ Le code compile parfaitement sans erreur de type ou de compilation.
 - **WebSocket warm-up** : 5000ms (conforme) ✅
 - **T2 Debounce** : 10000ms (conforme) ✅
 
+### **Nouvelles observations (session 2024-12-19)**
+- **Instance ID** : `1fd07bd6-b183-458a-be86-331f52f61c0f` ✅
+- **Migrations** : 7 appliquées (vs 6 précédemment) ✅
+- **Récupération leadership** : Lock expiré 674s récupéré automatiquement ✅
+- **Comportement failover** : Plus robuste que prévu ✅
+
 ### **Compteurs d'événements**
 - **T0 détectés** : 1 notice unique (TOWNS) ✅
 - **T0 dédupliqués** : 100% d'efficacité ✅

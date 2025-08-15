@@ -3,7 +3,7 @@
   "timestamp": "2024-12-19T15:30:00Z",
   "status": "healthy",
   "instance": {
-    "id": "cd9ad578-afc9-4463-b432-18493c87969a",
+    "id": "1fd07bd6-b183-458a-be86-331f52f61c0f",
     "is_leader": true,
     "observer_mode": false,
     "uptime": 1800000
