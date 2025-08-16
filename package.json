@@ -21,7 +21,8 @@
     "migrate": "ts-node src/scripts/migrate.ts",
     "simulate:notice": "ts-node src/bin/simulate-notice.ts",
     "simulate:ws": "ts-node src/bin/simulate-ws.ts",
-    "db:dump": "ts-node src/bin/db-dump.ts"
+    "db:dump": "ts-node src/bin/db-dump.ts",
+    "verify:deployment": "ts-node src/bin/verify-deployment.ts"
   },
   "keywords": [
     "crypto",
