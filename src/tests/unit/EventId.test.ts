@@ -1,17 +1,18 @@
-import { buildNoticeEventId, buildWsEventId, isValidEventId } from '../../core/EventId';
+import { buildEventId, isValidEventId } from '../../core/EventId';
 
 describe('EventId Builders', () => {
   describe('buildNoticeEventId', () => {
     it('should generate deterministic eventId for notice with base', () => {
       const data = {
+        source: 'bithumb.notice' as const,
         base: 'TOWNS',
         url: 'https://www.bithumb.com/notice/123',
         markets: ['KRW'],
-        tradeTimeIso: '2024-01-01T12:00:00Z'
+        tradeTimeUtc: '2024-01-01T12:00:00Z'
       };
 
-      const eventId1 = buildNoticeEventId(data);
-      const eventId2 = buildNoticeEventId(data);
+      const eventId1 = buildEventId(data);
+      const eventId2 = buildEventId(data);
 
       expect(eventId1).toBe(eventId2);
       expect(isValidEventId(eventId1)).toBe(true);
@@ -20,14 +21,15 @@ describe('EventId Builders', () => {
 
     it('should generate deterministic eventId for notice without base', () => {
       const data = {
-        base: null,
+        source: 'bithumb.notice' as const,
+        base: '',
         url: 'https://www.bithumb.com/notice/456',
         markets: ['KRW', 'USDT'],
-        tradeTimeIso: '2024-01-01T13:00:00Z'
+        tradeTimeUtc: '2024-01-01T13:00:00Z'
       };
 
-      const eventId1 = buildNoticeEventId(data);
-      const eventId2 = buildNoticeEventId(data);
+      const eventId1 = buildEventId(data);
+      const eventId2 = buildEventId(data);
 
       expect(eventId1).toBe(eventId2);
       expect(isValidEventId(eventId1)).toBe(true);
@@ -35,78 +37,87 @@ describe('EventId Builders', () => {
 
     it('should handle different markets order consistently', () => {
       const data1 = {
+        source: 'bithumb.notice' as const,
         base: 'TEST',
         url: 'https://www.bithumb.com/notice/789',
         markets: ['KRW', 'USDT'],
-        tradeTimeIso: '2024-01-01T14:00:00Z'
+        tradeTimeUtc: '2024-01-01T14:00:00Z'
       };
 
       const data2 = {
+        source: 'bithumb.notice' as const,
         base: 'TEST',
         url: 'https://www.bithumb.com/notice/789',
         markets: ['USDT', 'KRW'], // Different order
-        tradeTimeIso: '2024-01-01T14:00:00Z'
+        tradeTimeUtc: '2024-01-01T14:00:00Z'
       };
 
-      const eventId1 = buildNoticeEventId(data1);
-      const eventId2 = buildNoticeEventId(data2);
+      const eventId1 = buildEventId(data1);
+      const eventId2 = buildEventId(data2);
 
       expect(eventId1).toBe(eventId2); // Should be same due to sorting
     });
 
     it('should handle duplicate markets', () => {
       const data = {
+        source: 'bithumb.notice' as const,
         base: 'TEST',
         url: 'https://www.bithumb.com/notice/999',
         markets: ['KRW', 'KRW', 'USDT', 'USDT'], // Duplicates
-        tradeTimeIso: '2024-01-01T15:00:00Z'
+        tradeTimeUtc: '2024-01-01T15:00:00Z'
       };
 
-      const eventId = buildNoticeEventId(data);
+      const eventId = buildEventId(data);
       expect(isValidEventId(eventId)).toBe(true);
     });
 
     it('should normalize URL correctly', () => {
       const data1 = {
+        source: 'bithumb.notice' as const,
         base: 'TEST',
         url: 'https://www.bithumb.com/notice/123?param1=value1&param2=value2',
         markets: ['KRW'],
-        tradeTimeIso: '2024-01-01T16:00:00Z'
+        tradeTimeUtc: '2024-01-01T16:00:00Z'
       };
 
       const data2 = {
+        source: 'bithumb.notice' as const,
         base: 'TEST',
         url: 'https://www.bithumb.com/notice/456?param1=value1&param2=value2', // Different notice ID
         markets: ['KRW'],
-        tradeTimeIso: '2024-01-01T16:00:00Z'
+        tradeTimeUtc: '2024-01-01T16:00:00Z'
       };
 
-      const eventId1 = buildNoticeEventId(data1);
-      const eventId2 = buildNoticeEventId(data2);
+      const eventId1 = buildEventId(data1);
+      const eventId2 = buildEventId(data2);
 
       // Should be different because notice IDs are different
       expect(eventId1).not.toBe(eventId2);
     });
 
-    it('should handle missing tradeTimeIso', () => {
+    it('should handle missing tradeTimeUtc', () => {
       const data = {
+        source: 'bithumb.notice' as const,
         base: 'TEST',
         url: 'https://www.bithumb.com/notice/123',
         markets: ['KRW']
-        // tradeTimeIso missing
+        // tradeTimeUtc missing
       };
 
-      const eventId = buildNoticeEventId(data);
+      const eventId = buildEventId(data);
       expect(isValidEventId(eventId)).toBe(true);
     });
   });
 
   describe('buildWsEventId', () => {
     it('should generate deterministic eventId for WebSocket', () => {
-      const data = { base: 'TOWNS' };
+      const data = { 
+        source: 'bithumb.ws' as const,
+        base: 'TOWNS' 
+      };
 
-      const eventId1 = buildWsEventId(data);
-      const eventId2 = buildWsEventId(data);
+      const eventId1 = buildEventId(data);
+      const eventId2 = buildEventId(data);
 
       expect(eventId1).toBe(eventId2);
       expect(isValidEventId(eventId1)).toBe(true);
@@ -114,13 +125,22 @@ describe('EventId Builders', () => {
     });
 
     it('should handle different base cases consistently', () => {
-      const data1 = { base: 'towns' };
-      const data2 = { base: 'TOWNS' };
-      const data3 = { base: 'Towns' };
+      const data1 = { 
+        source: 'bithumb.ws' as const,
+        base: 'towns' 
+      };
+      const data2 = { 
+        source: 'bithumb.ws' as const,
+        base: 'TOWNS' 
+      };
+      const data3 = { 
+        source: 'bithumb.ws' as const,
+        base: 'Towns' 
+      };
 
-      const eventId1 = buildWsEventId(data1);
-      const eventId2 = buildWsEventId(data2);
-      const eventId3 = buildWsEventId(data3);
+      const eventId1 = buildEventId(data1);
+      const eventId2 = buildEventId(data2);
+      const eventId3 = buildEventId(data3);
 
       // All should be the same due to toUpperCase()
       expect(eventId1).toBe(eventId2);
@@ -128,11 +148,17 @@ describe('EventId Builders', () => {
     });
 
     it('should generate different eventIds for different bases', () => {
-      const data1 = { base: 'TOWNS' };
-      const data2 = { base: 'ETH' };
+      const data1 = { 
+        source: 'bithumb.ws' as const,
+        base: 'TOWNS' 
+      };
+      const data2 = { 
+        source: 'bithumb.ws' as const,
+        base: 'ETH' 
+      };
 
-      const eventId1 = buildWsEventId(data1);
-      const eventId2 = buildWsEventId(data2);
+      const eventId1 = buildEventId(data1);
+      const eventId2 = buildEventId(data2);
 
       expect(eventId1).not.toBe(eventId2);
     });
@@ -157,16 +183,20 @@ describe('EventId Builders', () => {
   describe('Deterministic behavior', () => {
     it('should generate same eventId for identical data across multiple calls', () => {
       const noticeData = {
+        source: 'bithumb.notice' as const,
         base: 'DETERMINISTIC',
         url: 'https://www.bithumb.com/notice/deterministic',
         markets: ['KRW'],
-        tradeTimeIso: '2024-01-01T00:00:00Z'
+        tradeTimeUtc: '2024-01-01T00:00:00Z'
       };
 
-      const wsData = { base: 'DETERMINISTIC' };
+      const wsData = { 
+        source: 'bithumb.ws' as const,
+        base: 'DETERMINISTIC' 
+      };
 
-      const noticeEventIds = Array(10).fill(null).map(() => buildNoticeEventId(noticeData));
-      const wsEventIds = Array(10).fill(null).map(() => buildWsEventId(wsData));
+      const noticeEventIds = Array(10).fill(null).map(() => buildEventId(noticeData));
+      const wsEventIds = Array(10).fill(null).map(() => buildEventId(wsData));
 
       // All should be identical
       expect(new Set(noticeEventIds).size).toBe(1);
@@ -178,21 +208,23 @@ describe('EventId Builders', () => {
 
     it('should generate different eventIds for different data', () => {
       const data1 = {
+        source: 'bithumb.notice' as const,
         base: 'TOKEN1',
         url: 'https://www.bithumb.com/notice/1',
         markets: ['KRW'],
-        tradeTimeIso: '2024-01-01T00:00:00Z'
+        tradeTimeUtc: '2024-01-01T00:00:00Z'
       };
 
       const data2 = {
+        source: 'bithumb.notice' as const,
         base: 'TOKEN2',
         url: 'https://www.bithumb.com/notice/2',
         markets: ['KRW'],
-        tradeTimeIso: '2024-01-01T00:00:00Z'
+        tradeTimeUtc: '2024-01-01T00:00:00Z'
       };
 
-      const eventId1 = buildNoticeEventId(data1);
-      const eventId2 = buildNoticeEventId(data2);
+      const eventId1 = buildEventId(data1);
+      const eventId2 = buildEventId(data2);
 
       expect(eventId1).not.toBe(eventId2);
     });
