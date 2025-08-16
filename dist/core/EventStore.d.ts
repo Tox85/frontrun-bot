@@ -13,9 +13,8 @@ export declare class EventStore {
     private db;
     constructor(db: Database);
     /**
-     * Marque un événement comme traité de manière atomique et idempotente
-     * BEGIN IMMEDIATE pour éviter les races multi-threads
-     * INSERT OR IGNORE → idempotence garantie
+     * Marque un événement comme traité (déduplication cross-sources)
+     * INSERT OR IGNORE → idempotence garantie sans transaction explicite
      */
     tryMarkProcessed(event: ProcessedEvent): Promise<MarkProcessedResult>;
     /**

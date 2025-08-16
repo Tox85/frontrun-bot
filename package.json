@@ -22,6 +22,9 @@
     "simulate:notice": "ts-node src/bin/simulate-notice.ts",
     "simulate:ws": "ts-node src/bin/simulate-ws.ts",
     "db:dump": "ts-node src/bin/db-dump.ts",
+    "fix-perp-catalog": "ts-node src/bin/fix-perp-catalog.ts",
+    "verify:fixes": "ts-node src/bin/verify-fixes.ts",
+    "test:dedup-fix": "ts-node src/bin/test-dedup-fix.ts",
     "verify:deployment": "ts-node src/bin/verify-deployment.ts"
   },
   "keywords": [

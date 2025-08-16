@@ -24,7 +24,8 @@ export declare class PerpCatalog {
     private db;
     private refreshIntervalMs;
     private refreshTimer;
-    private isRefreshing;
+    private guard;
+    private readonly quotePriority;
     constructor(db: Database, refreshIntervalMs?: number);
     initialize(): Promise<void>;
     private ensureTableExists;
@@ -35,8 +36,16 @@ export declare class PerpCatalog {
     private refreshHyperliquidCatalog;
     private refreshBinanceCatalog;
     private updateCatalog;
-    private updateCatalogInTransaction;
     private extractBaseFromSymbol;
+    /**
+     * Déduplication par base avec priorité quote
+     * Garde un seul marché par base selon la priorité quote
+     */
+    private pickPreferredByBase;
+    /**
+     * Extraction de la quote depuis le symbole
+     */
+    private extractQuoteFromSymbol;
     hasPerp(base: string): Promise<PerpLookupResult>;
     private getFromCache;
     private lookupDirect;

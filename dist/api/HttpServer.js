@@ -26,7 +26,9 @@ class HttpServer {
         t0_stale: 0,
         t0_dup_skips: 0,
         trades_opened: 0,
-        ws_reconnects: 0
+        ws_reconnects: 0,
+        catalog_refresh_coalesced: 0,
+        catalog_refresh_runs: 0
     };
     constructor(db, baselineManager, perpCatalog, singletonGuard, noticeClient = null, wsWatcher = null, telegramService, tradeExecutor = null, healthMonitor = null, eventStore, config = {}) {
         this.db = db;
@@ -252,9 +254,30 @@ class HttpServer {
             ...this.unifiedMetrics,
             ws_reconnects: this.wsWatcher ? this.wsWatcher.getReconnectCount?.() || 0 : 0
         };
+        // Métriques du PerpCatalog si disponible
+        let perpCatalogMetrics = {
+            catalog_refresh_coalesced: 0,
+            catalog_refresh_runs: 0
+        };
+        if (this.perpCatalog) {
+            try {
+                const guardCounters = this.perpCatalog.guard?.getCounters?.() || {};
+                perpCatalogMetrics = {
+                    catalog_refresh_coalesced: guardCounters.guard_coalesced || 0,
+                    catalog_refresh_runs: guardCounters.guard_runs || 0
+                };
+                // Mettre à jour les métriques unifiées
+                unifiedMetrics.catalog_refresh_coalesced = perpCatalogMetrics.catalog_refresh_coalesced;
+                unifiedMetrics.catalog_refresh_runs = perpCatalogMetrics.catalog_refresh_runs;
+            }
+            catch (error) {
+                console.warn('⚠️ Erreur lors de la récupération des métriques PerpCatalog:', error);
+            }
+        }
         return {
             ...baseMetrics,
             unified: unifiedMetrics,
+            perp_catalog: perpCatalogMetrics,
             timestamp: new Date().toISOString()
         };
     }

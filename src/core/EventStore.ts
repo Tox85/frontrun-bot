@@ -16,55 +16,38 @@ export class EventStore {
   constructor(private db: Database) {}
 
   /**
-   * Marque un événement comme traité de manière atomique et idempotente
-   * BEGIN IMMEDIATE pour éviter les races multi-threads
-   * INSERT OR IGNORE → idempotence garantie
+   * Marque un événement comme traité (déduplication cross-sources)
+   * INSERT OR IGNORE → idempotence garantie sans transaction explicite
    */
   async tryMarkProcessed(event: ProcessedEvent): Promise<MarkProcessedResult> {
     return new Promise((resolve, reject) => {
-      const db = this.db; // Capturer la référence
-      
-      db.serialize(() => {
-        db.run('BEGIN IMMEDIATE', (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
+      // Utiliser INSERT OR IGNORE directement sans transaction explicite
+      // Cela évite les conflits "cannot start a transaction within a transaction"
+      const stmt = this.db.prepare(
+        `INSERT OR IGNORE INTO processed_events 
+         (event_id, source, base, url, markets, trade_time_utc, raw_title)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
 
-          const stmt = db.prepare(
-            `INSERT OR IGNORE INTO processed_events 
-             (event_id, source, base, url, markets, trade_time_utc, raw_title)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
-          );
+      stmt.run([
+        event.eventId,
+        event.source,
+        event.base?.toUpperCase() || '',
+        event.url || '',
+        JSON.stringify((event.markets || []).map(m => m.toUpperCase()).sort()),
+        event.tradeTimeUtc || '',
+        event.rawTitle || ''
+      ], function(err) {
+        if (err) {
+          reject(err);
+          return;
+        }
 
-          stmt.run([
-            event.eventId,
-            event.source,
-            event.base.toUpperCase(),
-            event.url || '',
-            JSON.stringify((event.markets || []).map(m => m.toUpperCase()).sort()),
-            event.tradeTimeUtc || '',
-            event.rawTitle || ''
-          ], function(err) {
-            if (err) {
-              db.run('ROLLBACK', () => reject(err));
-              return;
-            }
-
-            db.run('COMMIT', (err) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-
-              const wasInserted = this.changes && this.changes > 0;
-              resolve(wasInserted ? 'INSERTED' : 'DUPLICATE');
-            });
-          });
-
-          stmt.finalize();
-        });
+        const wasInserted = this.changes && this.changes > 0;
+        resolve(wasInserted ? 'INSERTED' : 'DUPLICATE');
       });
+
+      stmt.finalize();
     });
   }
 
