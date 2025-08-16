@@ -38,6 +38,9 @@ RUN npm ci --only=production && npm cache clean --force
 # Copier les fichiers construits
 COPY --from=builder /app/dist ./dist
 
+# Copier le dossier migrations (nécessaire pour le runtime)
+COPY --from=builder /app/migrations ./migrations
+
 # Créer le répertoire de données et définir les permissions
 RUN mkdir -p /app/data && chown -R bot:nodejs /app/data
 
