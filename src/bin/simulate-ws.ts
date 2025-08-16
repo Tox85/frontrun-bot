@@ -1,8 +1,9 @@
 #!/usr/bin/env ts-node
 
 import { Database } from 'sqlite3';
-import { TokenRegistry } from '../store/TokenRegistry';
 import { BithumbWSWatcher } from '../watchers/BithumbWSWatcher';
+import { BaselineManager } from '../core/BaselineManager';
+import { MigrationRunner } from '../store/Migrations';
 
 async function simulateWS(): Promise<void> {
   console.log('🧪 Simulation de détection T2 (WebSocket)');
@@ -12,12 +13,22 @@ async function simulateWS(): Promise<void> {
     const dbPath = process.env.SQLITE_PATH || './data/bot.db';
     const db = new Database(dbPath);
     
-    // Initialiser le TokenRegistry
-    const tokenRegistry = new TokenRegistry(db);
-    await tokenRegistry.initialize();
+    // Exécuter les migrations
+    const migrationRunner = new MigrationRunner(db);
+    await migrationRunner.runMigrations();
+    console.log('✅ Migrations exécutées');
+    
+    // Initialiser le BaselineManager
+    const baselineManager = new BaselineManager(db);
+    await baselineManager.initialize();
+    console.log('✅ BaselineManager initialisé');
+    
+    // Créer un EventStore mock pour la simulation
+    const { EventStore } = await import('../core/EventStore.js');
+    const eventStore = new EventStore(db);
     
     // Créer le watcher
-    const watcher = new BithumbWSWatcher(tokenRegistry, {
+    const watcher = new BithumbWSWatcher(db, eventStore, {
       wsUrl: 'wss://pubwss.bithumb.com/pub/ws',
       restUrl: 'https://api.bithumb.com/public/ticker/ALL_KRW',
       debounceMs: 1000, // Réduire pour les tests
@@ -35,22 +46,36 @@ async function simulateWS(): Promise<void> {
     
     console.log('🔌 Token WS simulé:', mockToken);
     
-    // Traiter le token
-    await watcher['handleNewToken'](mockToken.base, mockToken.symbol);
+    // Vérifier si c'est un nouveau token
+    const isNew = await baselineManager.isTokenNew(mockToken.base);
+    console.log(`🔍 Token ${mockToken.base} est nouveau: ${isNew}`);
     
-    // Vérifier le résultat
-    const stats = await tokenRegistry.getProcessedEventsStats();
-    console.log('\n📊 Statistiques après simulation:');
-    console.log(`  Total événements: ${stats.total}`);
-    console.log(`  Par source:`, stats.bySource);
-    
-    // Vérifier la baseline
-    const baselineStats = await tokenRegistry.getBaselineKRStats();
-    console.log(`\n📚 Baseline KR: ${baselineStats.total} tokens`);
-    
-    // Vérifier le cooldown
-    const isInCooldown = await tokenRegistry.isInCooldown(mockToken.base);
-    console.log(`⏳ Token en cooldown: ${isInCooldown}`);
+    if (isNew) {
+      // Simuler la détection via WebSocket
+      watcher.emit('newToken', mockToken);
+      console.log('✅ Événement WS émis');
+      
+      // Vérifier le résultat
+      const result = await db.get(
+        'SELECT COUNT(*) as count FROM processed_events WHERE base = ?',
+        [mockToken.base]
+      );
+      console.log(`\n📊 Événements traités pour ${mockToken.base}: ${(result as any)?.count || 0}`);
+      
+      // Vérifier la baseline
+      const baselineStats = await baselineManager.getBaselineKRStats();
+      console.log(`\n📚 Baseline KR: ${baselineStats?.total || 0} tokens`);
+      
+      // Vérifier le cooldown
+      const cooldownResult = await db.get(
+        'SELECT 1 FROM cooldowns WHERE base = ? AND expires_at_utc > datetime("now")',
+        [mockToken.base]
+      );
+      const isInCooldown = !!cooldownResult;
+      console.log(`⏳ Token en cooldown: ${isInCooldown}`);
+    } else {
+      console.log('⚠️ Token déjà dans la baseline, simulation ignorée');
+    }
     
     // Fermer
     db.close();

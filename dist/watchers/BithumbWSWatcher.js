@@ -1,11 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BithumbWSWatcher = void 0;
-const TokenRegistry_1 = require("../store/TokenRegistry");
 const events_1 = require("events");
+const ws_1 = require("ws");
+const EventId_1 = require("../core/EventId");
 class BithumbWSWatcher extends events_1.EventEmitter {
     config;
-    tokenRegistry;
+    db;
+    eventStore;
     ws = null;
     isRunning = false;
     isConnected = false;
@@ -17,30 +19,28 @@ class BithumbWSWatcher extends events_1.EventEmitter {
     baseMutex = new Set();
     heartbeatInterval = null;
     isStopped = false;
-    messageBuffer = []; // Buffer pour traitement en batch
-    bufferFlushInterval = null;
     connectionStartTime = 0;
     lastMessageTime = 0;
     performanceMetrics = {
         messagesProcessed: 0,
         tokensDetected: 0,
         avgProcessingTime: 0,
-        connectionUptime: 0
+        connectionUptime: 0,
+        reconnects: 0
     };
-    constructor(tokenRegistry, config = {}) {
+    constructor(db, eventStore, config = {}) {
         super();
-        this.tokenRegistry = tokenRegistry;
+        this.db = db;
+        this.eventStore = eventStore;
         this.config = {
             wsUrl: 'wss://pubwss.bithumb.com/pub/ws',
             restUrl: 'https://api.bithumb.com/public/ticker/ALL_KRW',
-            debounceMs: 1000,
-            warmupMs: 5000,
+            debounceMs: 10000, // 10s comme requis
+            warmupMs: 5000, // 5s comme requis
             maxReconnectAttempts: 10,
             reconnectIntervalMs: 5000,
-            heartbeatIntervalMs: 30000,
-            aggressiveMode: true, // Mode agressif par défaut
+            heartbeatIntervalMs: 25000, // 25-30s comme requis
             connectionTimeoutMs: 15000,
-            messageBufferSize: 50,
             ...config
         };
     }
@@ -52,6 +52,7 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         console.log('🔌 Démarrage du BithumbWSWatcher...');
         console.log(`🌐 WebSocket URL: ${this.config.wsUrl}`);
         console.log(`🔍 REST URL: ${this.config.restUrl}`);
+        console.log(`⏳ Warm-up: ${this.config.warmupMs}ms, Debounce: ${this.config.debounceMs}ms`);
         this.isRunning = true;
         this.isStopped = false;
         await this.connect();
@@ -65,7 +66,6 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         this.cleanupTimers();
         this.disconnect();
         this.stopHeartbeat();
-        this.stopMessageBuffer();
     }
     async connect() {
         this.setupWebSocket();
@@ -73,7 +73,7 @@ class BithumbWSWatcher extends events_1.EventEmitter {
     setupWebSocket() {
         try {
             console.log('🔌 Connexion au WebSocket Bithumb...');
-            this.ws = new WebSocket(this.config.wsUrl);
+            this.ws = new ws_1.WebSocket(this.config.wsUrl);
             this.ws.onopen = () => {
                 console.log('✅ Connexion WebSocket Bithumb établie');
                 this.reconnectAttempts = 0;
@@ -83,14 +83,12 @@ class BithumbWSWatcher extends events_1.EventEmitter {
                 this.subscribeToKRWTickers();
                 // Démarrer le heartbeat
                 this.startHeartbeat();
-                // Démarrer le buffer de messages
-                this.startMessageBuffer();
-                // Démarrer le warm-up
+                // Démarrer le warm-up (5s comme requis)
                 this.startWarmup();
             };
             this.ws.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(event.data);
+                    const data = JSON.parse(event.data.toString());
                     this.handleWebSocketMessage(data);
                 }
                 catch (error) {
@@ -117,7 +115,7 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         }
     }
     subscribeToKRWTickers() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN)
+        if (!this.ws || this.ws.readyState !== ws_1.WebSocket.OPEN)
             return;
         try {
             // S'abonner aux tickers KRW
@@ -157,6 +155,11 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         const base = parts[0];
         if (!base || typeof base !== 'string')
             return null;
+        // ⚠️ Ignorer les symboles 1 caractère (W, T, etc.) comme requis
+        if (base.length === 1) {
+            console.log(`⚠️ Symbole 1 caractère ignoré: ${base} (${symbol})`);
+            return null;
+        }
         // Filtrer les tokens stables
         if (['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD'].includes(base)) {
             return null;
@@ -168,25 +171,26 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         return base;
     }
     async checkNewToken(base, symbol) {
-        // Éviter le traitement simultané d'une même base
+        // Éviter le traitement simultané d'une même base (mutex)
         if (this.baseMutex.has(base)) {
+            console.log(`🔒 Base ${base} déjà en traitement (mutex)`);
             return;
         }
         this.baseMutex.add(base);
         try {
             // Vérifier que le token n'est pas déjà dans la baseline
-            const isInBaseline = await this.tokenRegistry.isInBaselineKR(base);
+            const isInBaseline = await this.isInBaselineKR(base);
             if (isInBaseline) {
                 console.log(`ℹ️ Token ${base} déjà dans la baseline KR, ignoré`);
                 return;
             }
             // Vérifier le cooldown
-            const isInCooldown = await this.tokenRegistry.isInCooldown(base);
+            const isInCooldown = await this.isInCooldown(base);
             if (isInCooldown) {
                 console.log(`⏳ Token ${base} en cooldown, ignoré`);
                 return;
             }
-            // Debounce pour éviter le spam
+            // Debounce 10s par base comme requis
             if (this.debounceTimers.has(base)) {
                 clearTimeout(this.debounceTimers.get(base));
             }
@@ -201,27 +205,30 @@ class BithumbWSWatcher extends events_1.EventEmitter {
     }
     async handleNewToken(base, symbol) {
         console.log(`🔍 Nouveau token potentiel détecté via WS: ${base} (${symbol})`);
-        // Double-check REST pour éviter les faux positifs
-        const isConfirmed = await this.doubleCheckREST(base);
-        if (isConfirmed) {
-            console.log(`✅ Nouveau token confirmé via REST: ${base}`);
-            // Générer l'event ID
-            const eventId = TokenRegistry_1.TokenRegistry.generateEventId('bithumb.ws', base);
-            // Vérifier que l'événement n'a pas déjà été traité
-            const isEventProcessed = await this.tokenRegistry.isEventProcessed(eventId);
-            if (isEventProcessed) {
-                console.log(`ℹ️ Événement WS déjà traité pour ${base}`);
-                return;
-            }
-            // Ajouter l'événement traité
-            const isNewEvent = await this.tokenRegistry.addProcessedEvent({
-                eventId,
-                source: 'bithumb.ws',
-                base,
-                url: '',
-                tradeTimeUtc: undefined
-            });
-            if (isNewEvent) {
+        // Double-check REST après 3-5s comme requis
+        const delay = 3000 + Math.random() * 2000; // 3-5s aléatoire
+        this.doubleCheckTimers.set(base, setTimeout(async () => {
+            await this.performDoubleCheckREST(base, symbol);
+            this.doubleCheckTimers.delete(base);
+        }, delay));
+        console.log(`⏳ Double-check REST programmé pour ${base} dans ${Math.round(delay)}ms`);
+    }
+    async performDoubleCheckREST(base, symbol) {
+        try {
+            console.log(`🔍 Double-check REST pour ${base}...`);
+            const isConfirmed = await this.doubleCheckREST(base);
+            if (isConfirmed) {
+                console.log(`✅ Nouveau token confirmé via REST: ${base}`);
+                // Générer l'event ID déterministe (bithumb.ws|base|KRW)
+                const eventId = this.generateEventId(base);
+                // Vérifier que l'événement n'a pas déjà été traité
+                const isEventProcessed = await this.isEventProcessed(eventId);
+                if (isEventProcessed) {
+                    console.log(`ℹ️ Événement WS déjà traité pour ${base}`);
+                    return;
+                }
+                // Ajouter l'événement traité
+                await this.addProcessedEvent(eventId, base, 'bithumb.ws');
                 console.log(`🆕 Nouveau listing détecté via WebSocket: ${base}`);
                 // Émettre l'événement pour traitement
                 this.emit('newToken', {
@@ -232,16 +239,19 @@ class BithumbWSWatcher extends events_1.EventEmitter {
                     confirmed: true
                 });
                 // Ajouter au cooldown
-                await this.tokenRegistry.addCooldown(base, 'ws_detected', 24);
+                await this.addCooldown(base, 'ws_detected', 24);
+                this.performanceMetrics.tokensDetected++;
+            }
+            else {
+                console.log(`❌ Faux positif détecté pour ${base} - pas dans REST`);
             }
         }
-        else {
-            console.log(`❌ Faux positif détecté pour ${base} - pas dans REST`);
+        catch (error) {
+            console.error(`❌ Erreur lors du double-check REST pour ${base}:`, error);
         }
     }
     async doubleCheckREST(base) {
         try {
-            console.log(`🔍 Double-check REST pour ${base}...`);
             const response = await fetch(`https://api.bithumb.com/public/ticker/${base}_KRW`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -259,12 +269,61 @@ class BithumbWSWatcher extends events_1.EventEmitter {
             return false; // En cas d'erreur, on considère que c'est un faux positif
         }
     }
+    generateEventId(base) {
+        // EventId déterministe via EventId builder centralisé
+        const eventId = (0, EventId_1.buildEventId)({
+            source: 'bithumb.ws',
+            base,
+            url: '',
+            markets: ['KRW'],
+            tradeTimeUtc: ''
+        });
+        console.log(`🔑 Generated WS eventId: ${eventId.substring(0, 8)}...`);
+        return eventId;
+    }
+    async isInBaselineKR(base) {
+        const result = await this.db.get('SELECT 1 FROM baseline_kr WHERE base = ?', [base]);
+        return !!result;
+    }
+    async isInCooldown(base) {
+        const result = await this.db.get('SELECT 1 FROM cooldowns WHERE base = ? AND expires_at_utc > datetime("now")', [base]);
+        return !!result;
+    }
+    async isEventProcessed(eventId) {
+        return await this.eventStore.isProcessed(eventId);
+    }
+    async addProcessedEvent(eventId, base, source) {
+        try {
+            const dedupResult = await this.eventStore.tryMarkProcessed({
+                eventId,
+                source: source === 'bithumb.ws' ? 'bithumb.ws' : 'bithumb.notice',
+                base,
+                url: '',
+                markets: ['KRW'],
+                tradeTimeUtc: '',
+                rawTitle: `WS Event ${base}`
+            });
+            if (dedupResult === 'INSERTED') {
+                console.log(`✅ [DEDUP] INSERTED ${eventId.substring(0, 8)}... base=${base} source=${source}`);
+            }
+            else {
+                console.log(`⏭️ [DEDUP] DUPLICATE ${eventId.substring(0, 8)}... base=${base} source=${source}`);
+            }
+        }
+        catch (error) {
+            console.error(`❌ [DEDUP] Error in WebSocket deduplication:`, error);
+        }
+    }
+    async addCooldown(base, reason, hours) {
+        const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+        await this.db.run('INSERT OR REPLACE INTO cooldowns (base, expires_at_utc, reason, created_at_utc) VALUES (?, ?, ?, datetime("now"))', [base, expiresAt, reason]);
+    }
     startWarmup() {
         if (this.warmupTimer) {
             clearTimeout(this.warmupTimer);
         }
         this.warmupTimer = setTimeout(() => {
-            console.log('🔥 Warm-up terminé, surveillance active');
+            console.log('🔥 Warm-up terminé (5s), surveillance active');
             this.warmupTimer = null;
         }, this.config.warmupMs);
         console.log(`⏳ Warm-up en cours (${this.config.warmupMs}ms)`);
@@ -273,9 +332,9 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
         }
-        // Envoyer un ping toutes les 30 secondes
+        // Envoyer un ping toutes les 25-30s comme requis
         this.heartbeatInterval = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            if (this.ws && this.ws.readyState === ws_1.WebSocket.OPEN) {
                 try {
                     // Envoyer un ping simple
                     this.ws.send(JSON.stringify({ type: 'ping' }));
@@ -299,7 +358,9 @@ class BithumbWSWatcher extends events_1.EventEmitter {
             return;
         }
         this.reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000); // Backoff exponentiel, max 30s
+        this.performanceMetrics.reconnects++;
+        // Backoff exponentiel: 1→2→4... max 60s comme requis
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
         console.log(`🔄 Tentative de reconnexion ${this.reconnectAttempts}/${this.config.maxReconnectAttempts} dans ${delay}ms`);
         setTimeout(() => {
             if (!this.isStopped) {
@@ -312,109 +373,52 @@ class BithumbWSWatcher extends events_1.EventEmitter {
             this.ws.close();
             this.ws = null;
         }
-        this.isConnected = false;
     }
     cleanupTimers() {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
         if (this.warmupTimer) {
             clearTimeout(this.warmupTimer);
             this.warmupTimer = null;
         }
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        // Nettoyer tous les timers de debounce
         for (const timer of this.debounceTimers.values()) {
             clearTimeout(timer);
         }
         this.debounceTimers.clear();
+        // Nettoyer tous les timers de double-check
         for (const timer of this.doubleCheckTimers.values()) {
             clearTimeout(timer);
         }
         this.doubleCheckTimers.clear();
     }
-    startMessageBuffer() {
-        if (this.bufferFlushInterval) {
-            clearInterval(this.bufferFlushInterval);
-        }
-        // Traiter les messages en batch toutes les 100ms pour optimiser les performances
-        this.bufferFlushInterval = setInterval(() => {
-            if (this.messageBuffer.length > 0) {
-                this.processMessageBatch();
-            }
-        }, 100);
-    }
-    stopMessageBuffer() {
-        if (this.bufferFlushInterval) {
-            clearInterval(this.bufferFlushInterval);
-            this.bufferFlushInterval = null;
-        }
-        // Traiter les messages restants
-        if (this.messageBuffer.length > 0) {
-            this.processMessageBatch();
-        }
-    }
-    processMessageBatch() {
-        const startTime = Date.now();
-        const batch = [...this.messageBuffer];
-        this.messageBuffer = [];
-        // Traitement parallèle des messages
-        const processingPromises = batch.map(message => this.processWebSocketMessage(message));
-        Promise.all(processingPromises).then(() => {
-            const processingTime = Date.now() - startTime;
-            this.performanceMetrics.messagesProcessed += batch.length;
-            this.performanceMetrics.avgProcessingTime =
-                (this.performanceMetrics.avgProcessingTime + processingTime) / 2;
-            if (this.config.aggressiveMode && batch.length > 0) {
-                console.log(`⚡ Batch traité: ${batch.length} messages en ${processingTime}ms`);
-            }
-        });
-    }
     handleWebSocketMessage(data) {
-        // Ajouter au buffer pour traitement en batch
-        this.messageBuffer.push(data);
-        // Si le buffer est plein, le traiter immédiatement
-        if (this.messageBuffer.length >= this.config.messageBufferSize) {
-            this.processMessageBatch();
-        }
         this.lastMessageTime = Date.now();
-    }
-    processWebSocketMessage(data) {
+        this.performanceMetrics.messagesProcessed++;
         try {
             if (data.type === 'ticker' && data.content) {
                 this.processTicker(data.content);
             }
+            else if (data.type === 'pong') {
+                // Réponse au ping
+                console.log('🏓 Pong reçu');
+            }
         }
         catch (error) {
-            console.error('❌ Erreur lors du parsing du message WebSocket:', error);
+            console.error('❌ Erreur lors du traitement du message:', error);
         }
     }
-    // Méthode pour obtenir les métriques de performance
-    getPerformanceMetrics() {
+    getMetrics() {
         const now = Date.now();
-        this.performanceMetrics.connectionUptime = this.isConnected ? now - this.connectionStartTime : 0;
         return {
             ...this.performanceMetrics,
-            bufferSize: this.messageBuffer.length,
+            connectionUptime: this.isConnected ? now - this.connectionStartTime : 0,
             isConnected: this.isConnected,
-            reconnectAttempts: this.reconnectAttempts,
-            lastMessageAge: now - this.lastMessageTime
-        };
-    }
-    // Getters pour le monitoring
-    getStatus() {
-        return {
             isRunning: this.isRunning,
-            isConnected: this.isConnected,
-            reconnectAttempts: this.reconnectAttempts,
-            config: this.config
+            reconnectAttempts: this.reconnectAttempts
         };
-    }
-    // Méthode pour forcer une reconnexion (utile pour les tests)
-    async forceReconnect() {
-        console.log('🔄 Reconnexion forcée...');
-        this.cleanupTimers();
-        this.reconnectAttempts = 0;
-        await this.connect();
     }
 }
 exports.BithumbWSWatcher = BithumbWSWatcher;

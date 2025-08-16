@@ -1,18 +1,51 @@
-node_modules
-npm-debug.log
-.git
-.gitignore
-README.md
-.env
-.env.*
-*.log
-data/
-dist/
+# Fichiers de développement
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Fichiers de test
 coverage/
 .nyc_output/
+test-results/
+
+# Fichiers de données locales
+data/
+*.db
+*.db-*
+
+# Fichiers de configuration locale
+.env.local
+.env.development
+.env.test
+
+# Fichiers de logs
+logs/
+*.log
+
+# Fichiers temporaires
+.tmp/
+.temp/
+
+# Fichiers de documentation
+docs/
+README.md
+*.md
+
+# Fichiers Git
+.git/
+.gitignore
+
+# Fichiers de système
 .DS_Store
-.vscode/
-.idea/
-*.swp
-*.swo
-*~ 
+Thumbs.db
+
+# Fichiers Railway
+railway.toml
+.railwayignore
+Procfile
+
+# Fichiers de build
+dist/
+build/
+*.tsbuildinfo 

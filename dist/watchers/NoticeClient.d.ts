@@ -12,10 +12,11 @@ export interface ProcessedNotice {
     title: string;
     url: string;
     publishedAtUtc: string;
-    goLiveAt?: string;
+    markets: string[];
     priority: 'high' | 'medium' | 'low';
     status: 'scheduled' | 'live' | 'completed';
-    source: 'bithumb.api';
+    source: 'bithumb.notice';
+    tradeTimeUtc?: Date | undefined;
 }
 export declare class NoticeClient {
     private readonly baseUrl;
@@ -24,6 +25,7 @@ export declare class NoticeClient {
     constructor();
     /**
      * Récupère les dernières notices depuis l'API officielle Bithumb
+     * UNIQUEMENT l'API publique - pas de scraping du site web
      */
     fetchLatestNotices(count?: number): Promise<BithumbNotice[]>;
     /**
@@ -33,23 +35,23 @@ export declare class NoticeClient {
     /**
      * Extrait la base du token depuis le titre
      */
-    extractTokenBase(notice: BithumbNotice): string | null;
+    private extractTokenBase;
+    /**
+     * Extrait les marchés mentionnés
+     */
+    extractMarkets(notice: BithumbNotice): string[];
     /**
      * Convertit le timestamp KST en UTC
      */
     parsePublishedUtc(notice: BithumbNotice): string;
     /**
-     * Détecte si c'est un pré-listing (date future)
+     * Détecte si c'est un pré-listing (date future) et retourne la Date
      */
-    isFutureListing(notice: BithumbNotice): boolean;
+    parseTradeTime(notice: BithumbNotice): Date | null;
     /**
      * Calcule la priorité du listing
      */
     calculatePriority(notice: BithumbNotice): 'high' | 'medium' | 'low';
-    /**
-     * Génère un EventId unique et déterministe
-     */
-    generateEventId(notice: BithumbNotice): string;
     /**
      * Traite une notice et la convertit en format interne
      */

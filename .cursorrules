@@ -1,19 +1,37 @@
 {
   "guidelines": [
-    "Always follow docs/BOT_RULES.md and the Base Consignes.",
-    "Analyze the entire repository line-by-line; remove dead/legacy code and Upbit detection paths.",
-    "Detection sources are exactly: Bithumb NoticePoller (HTTP) and Bithumb WS KRW. Do NOT add Upbit.",
-    "Do not send Telegram requests from anywhere except notify/TelegramService.",
-    "EventId must be deterministic: never include current timestamps.",
-    "All jobs/polls must be no-overlap with proper retry/backoff.",
-    "Enforce SingletonGuard: non-leader must run in OBSERVER_MODE (no trade/telegram).",
+    "Bithumb-only détection: T0 (HTTP notices API publique), T2 (WS KRW). Aucune détection Upbit.",
+    "Aucun scraping du site web Bithumb (pas de www.bithumb.com/feed…) → uniquement l'API publique notices.",
+    "EventId déterministe (pas de Date.now()), dédup DB (processed_events.eventId UNIQUE + INSERT OR IGNORE).",
+    "Baseline KR: construite au boot uniquement (REST ALL_KRW), jamais pendant la détection.",
+    "Singleton: un leader actif; les autres en OBSERVER_MODE (aucun trade/telegram).",
+    "Telegram: un seul module, queue 1 msg/s, respect strict de retry_after, zéro envoi direct parallèle.",
+    "RateLimiter: reset de fenêtre basé uniquement sur la config exchange, jamais sur la defaultConfig.",
+    "Trade: HL testnet only; exit +180s reduce-only; cooldown 24h/base; circuit breaker (×3 erreurs → trading OFF).",
+    "Sécurité: pas de log de secrets; Docker non-root; SQLite WAL.",
+    "Expose /health avec p95 latences et /metrics avec ws.reconnects et exit.pending.",
     "Implement SQLite migrations runner; schema stored under migrations/ with versioning.",
-    "Expose /health with p95 latences and /metrics with ws.reconnects and exit.pending.",
     "After each major step, present a short plan, then diffs, then run: npm run typecheck && npm run test && npm run build."
   ],
   "testCommands": [
     "npm run typecheck",
     "npm run test",
     "npm run build"
-  ]
+  ],
+  "architecture": {
+    "detection": {
+      "T0": "Bithumb NoticePoller HTTP (API notices publique, ≥1100ms, KST→UTC)",
+      "T2": "Bithumb WebSocket KRW (filet de sécurité, debounce 10s/base)"
+    },
+    "baseline": "Bithumb REST ALL_KRW au boot uniquement, exclusion stables (USDT, USDC, DAI, TUSD)",
+    "trading": "Hyperliquid testnet, exit +180s reduce-only, cooldown 24h, circuit breaker ×3",
+    "singleton": "Leader actif + OBSERVER_MODE, instance lock en DB",
+    "telegram": "Queue 1 msg/s, respect retry_after, dédup eventId"
+  },
+  "endpoints": {
+    "health": "/health (leader_instance_id, OBSERVER_MODE, baseline.krw_count, sanity, p95)",
+    "metrics": "/metrics (ws.reconnects, exit.pending, telegram.queue_len, perps_*)",
+    "simulate": "/simulate/notice, /simulate/ws, /simulate/notify-burst",
+    "control": "/trading/enable|disable, /whoami, /status, /baseline"
+  }
 }

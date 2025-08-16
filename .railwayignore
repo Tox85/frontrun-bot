@@ -1,0 +1,46 @@
+# Fichiers de développement
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Fichiers de test
+coverage/
+.nyc_output/
+test-results/
+
+# Fichiers de build
+dist/
+build/
+*.tsbuildinfo
+
+# Fichiers de données locales
+data/
+*.db
+*.db-*
+
+# Fichiers de configuration locale
+.env.local
+.env.development
+.env.test
+
+# Fichiers de logs
+logs/
+*.log
+
+# Fichiers temporaires
+.tmp/
+.temp/
+
+# Fichiers de documentation
+docs/
+README.md
+*.md
+
+# Fichiers Git
+.git/
+.gitignore
+
+# Fichiers de système
+.DS_Store
+Thumbs.db

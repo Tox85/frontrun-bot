@@ -1,4 +1,4 @@
-import { TokenRegistry } from '../store/TokenRegistry';
+import { Database } from 'sqlite3';
 export interface BithumbKRToken {
     symbol: string;
     base: string;
@@ -11,30 +11,39 @@ export interface BaselineManagerStats {
     activeTokens: number;
     lastUpdated: string;
     source: string;
+    sanity: boolean;
 }
 export declare class BaselineManager {
-    private tokenRegistry;
+    private db;
     private rateLimiter;
     private isInitialized;
     private baselineUrl;
-    constructor(tokenRegistry: TokenRegistry);
+    private readonly stableCoins;
+    constructor(db: Database);
     initialize(): Promise<void>;
     private fetchAndStoreBaseline;
+    private storeBaselineKR;
     private parseBaselineResponse;
     isTokenInBaseline(base: string): Promise<boolean>;
     isTokenNew(base: string): Promise<boolean>;
+    getBaselineKRStats(): Promise<{
+        total: number;
+        lastUpdated: string;
+        sanity: boolean;
+    } | null>;
     getBaselineStats(): Promise<BaselineManagerStats | null>;
-    refreshBaseline(): Promise<void>;
     healthCheck(): Promise<{
         isInitialized: boolean;
         baselineExists: boolean;
         tokenCount: number;
         lastUpdated: string | null;
+        sanity: boolean;
     }>;
     stop(): Promise<void>;
     getStatus(): {
         isInitialized: boolean;
         baselineUrl: string;
         rateLimiterState: any;
+        isBootOnly: boolean;
     };
 }

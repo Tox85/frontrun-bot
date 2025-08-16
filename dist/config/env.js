@@ -62,16 +62,27 @@ exports.CONFIG = {
     // Trading
     TRADE_AMOUNT_USDT: (0, exports.toNumber)(process.env.TRADE_AMOUNT_USDT, 400),
     LEVERAGE: (0, exports.toNumber)(process.env.LEVERAGE, 20),
-    STOP_LOSS_PERCENT: (0, exports.toNumber)(process.env.STOP_LOSS_PERCENT, 5),
     POSITION_SIZE_USDC: (0, exports.toNumber)(process.env.POSITION_SIZE_USDC, 400),
     // Risk Management
-    RISK_PER_TRADE_USD: (0, exports.toNumber)(process.env.RISK_PER_TRADE_USD, 400), // Nouvelle variable
+    // Risk Management - Stratégie Agressive
+    RISK_PER_TRADE_USD: (0, exports.toNumber)(process.env.RISK_PER_TRADE_USD, 400),
     RISK_PER_TRADE_USDC_DEFAULT: (0, exports.toNumber)(process.env.RISK_PER_TRADE_USDC_DEFAULT, 0.5),
-    RISK_PCT_OF_BAL: (0, exports.toNumber)(process.env.RISK_PCT_OF_BAL, 0.04),
-    MAX_LEVERAGE_DEFAULT: (0, exports.toNumber)(process.env.MAX_LEVERAGE_DEFAULT, 25),
+    RISK_PCT: (0, exports.toNumber)(process.env.RISK_PCT, 0.15), // 15% par trade (agressif)
+    LEVERAGE_TARGET: (0, exports.toNumber)(process.env.LEVERAGE_TARGET, 8), // 8x levier (agressif)
+    MAX_LEVERAGE_DEFAULT: (0, exports.toNumber)(process.env.MAX_LEVERAGE_DEFAULT, 8), // 8x max
     ORDER_TIMEOUT_MS: (0, exports.toNumber)(process.env.ORDER_TIMEOUT_MS, 15000),
     PERP_CHECK_TIMEOUT_MS: (0, exports.toNumber)(process.env.PERP_CHECK_TIMEOUT_MS, 200),
     DRY_RUN: (0, exports.toBool)(process.env.DRY_RUN),
+    // Stratégie de Protection
+    MAX_RISK_PER_TRADE: (0, exports.toNumber)(process.env.MAX_RISK_PER_TRADE, 0.20), // 20% max par trade
+    STOP_LOSS_PERCENT: (0, exports.toNumber)(process.env.STOP_LOSS_PERCENT, 8), // 8% stop-loss
+    TAKE_PROFIT_PERCENT: (0, exports.toNumber)(process.env.TAKE_PROFIT_PERCENT, 15), // 15% take-profit
+    // Circuit Breaker
+    CIRCUIT_BREAKER_MAX_ERRORS: (0, exports.toNumber)(process.env.CIRCUIT_BREAKER_MAX_ERRORS, 3),
+    CIRCUIT_BREAKER_COOLDOWN_MS: (0, exports.toNumber)(process.env.CIRCUIT_BREAKER_COOLDOWN_MS, 3600000),
+    // Exit Strategy +180s
+    EXIT_DELAY_MS: (0, exports.toNumber)(process.env.EXIT_DELAY_MS, 180000), // 3 minutes
+    EXIT_STRATEGY: (0, exports.toString)(process.env.EXIT_STRATEGY, 'REDUCE_ONLY'),
     // Monitoring
     ENABLE_GLOBAL_MONITORING: (0, exports.toBool)(process.env.ENABLE_GLOBAL_MONITORING),
     ENABLE_KOREAN_LOGS: (0, exports.toBool)(process.env.ENABLE_KOREAN_LOGS),
@@ -120,8 +131,8 @@ function validateConfig() {
     if (exports.CONFIG.RISK_PER_TRADE_USDC_DEFAULT <= 0) {
         errors.push('RISK_PER_TRADE_USDC_DEFAULT doit être > 0');
     }
-    if (exports.CONFIG.RISK_PCT_OF_BAL <= 0 || exports.CONFIG.RISK_PCT_OF_BAL > 1) {
-        errors.push('RISK_PCT_OF_BAL doit être entre 0 et 1');
+    if (exports.CONFIG.RISK_PCT <= 0 || exports.CONFIG.RISK_PCT > 1) {
+        errors.push('RISK_PCT doit être entre 0 et 1');
     }
     if (exports.CONFIG.MAX_LEVERAGE_DEFAULT <= 0) {
         errors.push('MAX_LEVERAGE_DEFAULT doit être > 0');
@@ -155,7 +166,7 @@ function getConfigSummary() {
         STOP_LOSS_PERCENT: exports.CONFIG.STOP_LOSS_PERCENT,
         // Risk
         RISK_PER_TRADE_USDC_DEFAULT: exports.CONFIG.RISK_PER_TRADE_USDC_DEFAULT,
-        RISK_PCT_OF_BAL: exports.CONFIG.RISK_PCT_OF_BAL,
+        RISK_PCT: exports.CONFIG.RISK_PCT,
         MAX_LEVERAGE_DEFAULT: exports.CONFIG.MAX_LEVERAGE_DEFAULT,
         // Monitoring
         ENABLE_GLOBAL_MONITORING: exports.CONFIG.ENABLE_GLOBAL_MONITORING,

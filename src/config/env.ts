@@ -62,17 +62,32 @@ export const CONFIG = {
   // Trading
   TRADE_AMOUNT_USDT: toNumber(process.env.TRADE_AMOUNT_USDT, 400),
   LEVERAGE: toNumber(process.env.LEVERAGE, 20),
-  STOP_LOSS_PERCENT: toNumber(process.env.STOP_LOSS_PERCENT, 5),
+
   POSITION_SIZE_USDC: toNumber(process.env.POSITION_SIZE_USDC, 400),
 
   // Risk Management
-  RISK_PER_TRADE_USD: toNumber(process.env.RISK_PER_TRADE_USD, 400), // Nouvelle variable
+  // Risk Management - Stratégie Agressive
+  RISK_PER_TRADE_USD: toNumber(process.env.RISK_PER_TRADE_USD, 400),
   RISK_PER_TRADE_USDC_DEFAULT: toNumber(process.env.RISK_PER_TRADE_USDC_DEFAULT, 0.5),
-  RISK_PCT_OF_BAL: toNumber(process.env.RISK_PCT_OF_BAL, 0.04),
-  MAX_LEVERAGE_DEFAULT: toNumber(process.env.MAX_LEVERAGE_DEFAULT, 25),
+  RISK_PCT: toNumber(process.env.RISK_PCT, 0.15), // 15% par trade (agressif)
+  LEVERAGE_TARGET: toNumber(process.env.LEVERAGE_TARGET, 8), // 8x levier (agressif)
+  MAX_LEVERAGE_DEFAULT: toNumber(process.env.MAX_LEVERAGE_DEFAULT, 8), // 8x max
   ORDER_TIMEOUT_MS: toNumber(process.env.ORDER_TIMEOUT_MS, 15000),
   PERP_CHECK_TIMEOUT_MS: toNumber(process.env.PERP_CHECK_TIMEOUT_MS, 200),
   DRY_RUN: toBool(process.env.DRY_RUN),
+
+  // Stratégie de Protection
+  MAX_RISK_PER_TRADE: toNumber(process.env.MAX_RISK_PER_TRADE, 0.20), // 20% max par trade
+  STOP_LOSS_PERCENT: toNumber(process.env.STOP_LOSS_PERCENT, 8), // 8% stop-loss
+  TAKE_PROFIT_PERCENT: toNumber(process.env.TAKE_PROFIT_PERCENT, 15), // 15% take-profit
+  
+  // Circuit Breaker
+  CIRCUIT_BREAKER_MAX_ERRORS: toNumber(process.env.CIRCUIT_BREAKER_MAX_ERRORS, 3),
+  CIRCUIT_BREAKER_COOLDOWN_MS: toNumber(process.env.CIRCUIT_BREAKER_COOLDOWN_MS, 3600000),
+  
+  // Exit Strategy +180s
+  EXIT_DELAY_MS: toNumber(process.env.EXIT_DELAY_MS, 180000), // 3 minutes
+  EXIT_STRATEGY: toString(process.env.EXIT_STRATEGY, 'REDUCE_ONLY'),
 
   // Monitoring
   ENABLE_GLOBAL_MONITORING: toBool(process.env.ENABLE_GLOBAL_MONITORING),
@@ -134,8 +149,8 @@ export function validateConfig(): { isValid: boolean; errors: string[]; warnings
     errors.push('RISK_PER_TRADE_USDC_DEFAULT doit être > 0');
   }
 
-  if (CONFIG.RISK_PCT_OF_BAL <= 0 || CONFIG.RISK_PCT_OF_BAL > 1) {
-    errors.push('RISK_PCT_OF_BAL doit être entre 0 et 1');
+  if (CONFIG.RISK_PCT <= 0 || CONFIG.RISK_PCT > 1) {
+    errors.push('RISK_PCT doit être entre 0 et 1');
   }
 
   if (CONFIG.MAX_LEVERAGE_DEFAULT <= 0) {
@@ -176,7 +191,7 @@ export function getConfigSummary(): Record<string, any> {
     
     // Risk
     RISK_PER_TRADE_USDC_DEFAULT: CONFIG.RISK_PER_TRADE_USDC_DEFAULT,
-    RISK_PCT_OF_BAL: CONFIG.RISK_PCT_OF_BAL,
+    RISK_PCT: CONFIG.RISK_PCT,
     MAX_LEVERAGE_DEFAULT: CONFIG.MAX_LEVERAGE_DEFAULT,
     
     // Monitoring

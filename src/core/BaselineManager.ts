@@ -1,4 +1,4 @@
-import { TokenRegistry } from '../store/TokenRegistry';
+import { Database } from 'sqlite3';
 import { RateLimiter } from './RateLimiter';
 
 export interface BithumbKRToken {
@@ -14,16 +14,18 @@ export interface BaselineManagerStats {
   activeTokens: number;
   lastUpdated: string;
   source: string;
+  sanity: boolean;
 }
 
 export class BaselineManager {
-  private tokenRegistry: TokenRegistry;
+  private db: Database;
   private rateLimiter: RateLimiter;
   private isInitialized: boolean = false;
   private baselineUrl = 'https://api.bithumb.com/public/ticker/ALL_KRW';
+  private readonly stableCoins = ['USDT', 'USDC', 'DAI', 'TUSD', 'BUSD', 'FRAX'];
 
-  constructor(tokenRegistry: TokenRegistry) {
-    this.tokenRegistry = tokenRegistry;
+  constructor(db: Database) {
+    this.db = db;
     this.rateLimiter = new RateLimiter();
   }
 
@@ -31,9 +33,9 @@ export class BaselineManager {
     if (this.isInitialized) return;
     
     try {
-      console.log('🔄 Initialisation de la baseline KR Bithumb...');
+      console.log('🔄 Initialisation de la baseline KR Bithumb (BOOT ONLY)...');
       
-      const existingBaseline = await this.tokenRegistry.getBaselineKRStats();
+      const existingBaseline = await this.getBaselineKRStats();
       
       if (existingBaseline && existingBaseline.total > 0) {
         console.log(`✅ Baseline KR existante trouvée: ${existingBaseline.total} tokens`);
@@ -44,7 +46,7 @@ export class BaselineManager {
       await this.fetchAndStoreBaseline();
       
       this.isInitialized = true;
-      console.log('✅ Baseline KR initialisée avec succès');
+      console.log('✅ Baseline KR initialisée avec succès (BOOT ONLY)');
       
     } catch (error) {
       console.error('❌ Erreur lors de l\'initialisation de la baseline KR:', error);
@@ -54,7 +56,7 @@ export class BaselineManager {
 
   private async fetchAndStoreBaseline(): Promise<void> {
     try {
-      console.log('📡 Récupération de la baseline KR depuis Bithumb...');
+      console.log('📡 Récupération de la baseline KR depuis Bithumb (BOOT ONLY)...');
       
       await this.rateLimiter.waitForAvailability('BITHUMB');
       
@@ -80,15 +82,29 @@ export class BaselineManager {
         throw new Error('Aucun token trouvé dans la réponse Bithumb');
       }
       
-      await this.tokenRegistry.addMultipleToBaselineKR(
-        tokens.map(t => ({ base: t.base, source: 'BITHUMB_REST' }))
-      );
+      await this.storeBaselineKR(tokens);
       
-      console.log(`📊 Baseline KR stockée: ${tokens.length} tokens`);
+      console.log(`📊 Baseline KR stockée: ${tokens.length} tokens (BOOT ONLY)`);
       
     } catch (error) {
       this.rateLimiter.recordFailure('BITHUMB');
       throw error;
+    }
+  }
+
+  private async storeBaselineKR(tokens: BithumbKRToken[]): Promise<void> {
+    const now = new Date().toISOString();
+    
+    for (const token of tokens) {
+      // Exclure les stablecoins comme requis
+      if (this.stableCoins.includes(token.base)) {
+        continue;
+      }
+      
+      await this.db.run(
+        'INSERT OR REPLACE INTO baseline_kr (base, source, listed_at_utc, created_at_utc) VALUES (?, ?, ?, ?)',
+        [token.base, 'bithumb.rest', token.listedAt, now]
+      );
     }
   }
 
@@ -103,6 +119,11 @@ export class BaselineManager {
         // L'API retourne des tokens comme BTC, ETH, etc. (pas BTC_KRW)
         // Vérifier que le token a des données de prix valides
         if (tokenInfo.opening_price && tokenInfo.closing_price) {
+          // Exclure les stablecoins
+          if (this.stableCoins.includes(symbol)) {
+            continue;
+          }
+          
           tokens.push({
             symbol: `${symbol}_KRW`, // Construire le symbole complet
             base: symbol,
@@ -114,6 +135,7 @@ export class BaselineManager {
       }
     }
     
+    console.log(`📊 Parsed ${tokens.length} valid tokens from Bithumb API`);
     return tokens;
   }
 
@@ -122,11 +144,41 @@ export class BaselineManager {
       await this.initialize();
     }
     
-    return await this.tokenRegistry.isInBaselineKR(base);
+    const result = await this.db.get(
+      'SELECT 1 FROM baseline_kr WHERE base = ?',
+      [base]
+    );
+    
+    return !!result;
   }
 
   async isTokenNew(base: string): Promise<boolean> {
     return !(await this.isTokenInBaseline(base));
+  }
+
+  async getBaselineKRStats(): Promise<{
+    total: number;
+    lastUpdated: string;
+    sanity: boolean;
+  } | null> {
+    try {
+      const result = await this.db.get(
+        'SELECT COUNT(*) as total, MAX(created_at_utc) as lastUpdated FROM baseline_kr'
+      );
+      
+      if (!result) return null;
+      
+      const sanity = (result as any).total >= 200; // Baseline raisonnable
+      
+      return {
+        total: (result as any).total,
+        lastUpdated: (result as any).lastUpdated || new Date().toISOString(),
+        sanity
+      };
+    } catch (error) {
+      console.error('❌ Erreur lors de la récupération des stats baseline:', error);
+      return null;
+    }
   }
 
   async getBaselineStats(): Promise<BaselineManagerStats | null> {
@@ -134,50 +186,47 @@ export class BaselineManager {
       await this.initialize();
     }
     
-    const stats = await this.tokenRegistry.getBaselineKRStats();
+    const stats = await this.getBaselineKRStats();
     if (!stats) return null;
     
     return {
       totalTokens: stats.total,
       activeTokens: stats.total,
       lastUpdated: stats.lastUpdated,
-      source: 'BITHUMB_REST'
+      source: 'bithumb.rest',
+      sanity: stats.sanity
     };
   }
 
-  async refreshBaseline(): Promise<void> {
-    console.log('🔄 Rafraîchissement de la baseline KR...');
-    
-    try {
-      await this.fetchAndStoreBaseline();
-      console.log('✅ Baseline KR rafraîchie avec succès');
-    } catch (error) {
-      console.error('❌ Erreur lors du rafraîchissement de la baseline:', error);
-      throw error;
-    }
-  }
+  // ⚠️ INTERDIT: refreshBaseline() supprimé - baseline construite au boot uniquement
+  // async refreshBaseline(): Promise<void> {
+  //   throw new Error('Baseline refresh interdit - construite au boot uniquement');
+  // }
 
   async healthCheck(): Promise<{
     isInitialized: boolean;
     baselineExists: boolean;
     tokenCount: number;
     lastUpdated: string | null;
+    sanity: boolean;
   }> {
     try {
-          const stats = await this.getBaselineStats();
+      const stats = await this.getBaselineKRStats();
     
-    return {
-      isInitialized: this.isInitialized,
-      baselineExists: stats !== null && stats.totalTokens > 0,
-      tokenCount: stats?.totalTokens || 0,
-      lastUpdated: stats?.lastUpdated || null
-    };
+      return {
+        isInitialized: this.isInitialized,
+        baselineExists: stats !== null && stats.total > 0,
+        tokenCount: stats?.total || 0,
+        lastUpdated: stats?.lastUpdated || null,
+        sanity: stats?.sanity || false
+      };
     } catch (error) {
       return {
         isInitialized: this.isInitialized,
         baselineExists: false,
         tokenCount: 0,
-        lastUpdated: null
+        lastUpdated: null,
+        sanity: false
       };
     }
   }
@@ -190,11 +239,13 @@ export class BaselineManager {
     isInitialized: boolean;
     baselineUrl: string;
     rateLimiterState: any;
+    isBootOnly: boolean;
   } {
     return {
       isInitialized: this.isInitialized,
       baselineUrl: this.baselineUrl,
-      rateLimiterState: this.rateLimiter.getStateSnapshot('BITHUMB')
+      rateLimiterState: this.rateLimiter.getStateSnapshot('BITHUMB'),
+      isBootOnly: true
     };
   }
 }

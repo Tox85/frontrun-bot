@@ -6,18 +6,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NoticeClient = void 0;
 const axios_1 = __importDefault(require("axios"));
 const luxon_1 = require("luxon");
-const crypto_1 = require("crypto");
+const extractBase_1 = require("../utils/extractBase");
 class NoticeClient {
     baseUrl = 'https://api.bithumb.com/v1/notices';
     keywords = [
         // Coréen
-        '상장', '원화마켓', 'KRW 마켓', '거래지원', '신규', '추가', '원화', '마켓',
+        '상장', '원화', 'KRW', '거래지원', '신규', '추가', '원화마켓', 'KRW 마켓',
         // Anglais
         'listing', 'new market', 'add KRW', 'KRW market', 'trading support', 'new', 'added'
     ];
     rateLimit = {
         requestsPerSecond: 1,
-        minInterval: 1100, // 1 rps + marge
+        minInterval: 1100, // ≥1100ms comme requis
         maxRetries: 3
     };
     constructor() {
@@ -27,20 +27,24 @@ class NoticeClient {
     }
     /**
      * Récupère les dernières notices depuis l'API officielle Bithumb
+     * UNIQUEMENT l'API publique - pas de scraping du site web
      */
     async fetchLatestNotices(count = 5) {
         try {
-            console.log(`📡 Fetching ${count} latest notices from Bithumb API...`);
+            console.log(`📡 Fetching ${count} latest notices from Bithumb API (public endpoint)...`);
             const response = await axios_1.default.get(this.baseUrl, {
                 params: { count },
-                timeout: 5000
+                timeout: 5000,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
             });
             if (!Array.isArray(response.data)) {
                 console.warn('⚠️ API response is not an array:', response.data);
                 return [];
             }
             const notices = response.data;
-            console.log(`✅ Fetched ${notices.length} notices from API`);
+            console.log(`✅ Fetched ${notices.length} notices from public API`);
             return notices;
         }
         catch (error) {
@@ -75,27 +79,28 @@ class NoticeClient {
     /**
      * Extrait la base du token depuis le titre
      */
-    extractTokenBase(notice) {
-        const title = notice.title.toLowerCase();
-        // Patterns courants pour les nouveaux listings
-        const patterns = [
-            /(\w+)\s*원화\s*마켓\s*추가/i, // "ABC 원화 마켓 추가"
-            /(\w+)\s*krw\s*마켓\s*추가/i, // "ABC KRW 마켓 추가"
-            /(\w+)\s*거래지원\s*시작/i, // "ABC 거래지원 시작"
-            /(\w+)\s*상장\s*공지/i, // "ABC 상장 공지"
-            /(\w+)\s*listing\s*announcement/i, // "ABC listing announcement"
-            /(\w+)\s*new\s*market/i, // "ABC new market"
-        ];
-        for (const pattern of patterns) {
-            const match = title.match(pattern);
-            if (match && match[1]) {
-                const base = match[1].toUpperCase();
-                console.log(`🎯 Token base extracted: ${base} from "${notice.title}"`);
-                return base;
-            }
+    extractTokenBase(title, body) {
+        const fullText = `${title} ${body}`;
+        const result = (0, extractBase_1.extractBaseFromNotice)(fullText);
+        if (result.kind === 'LATIN') {
+            console.log(`✅ Base extraite: ${result.base} (source: ${result.source})`);
+            return result.base;
         }
-        console.log(`❓ Could not extract token base from: "${notice.title}"`);
-        return null;
+        else {
+            console.log(`⚠️ KRW listing détecté mais ticker latin absent (alias: ${result.baseAliasKorean ?? 'n/a'}) — T2 fallback`);
+            return null;
+        }
+    }
+    /**
+     * Extrait les marchés mentionnés
+     */
+    extractMarkets(notice) {
+        const markets = [];
+        const text = `${notice.title} ${(notice.categories || []).join(' ')}`.toLowerCase();
+        if (text.includes('krw') || text.includes('원화')) {
+            markets.push('KRW');
+        }
+        return markets;
     }
     /**
      * Convertit le timestamp KST en UTC
@@ -120,23 +125,22 @@ class NoticeClient {
         }
     }
     /**
-     * Détecte si c'est un pré-listing (date future)
+     * Détecte si c'est un pré-listing (date future) et retourne la Date
      */
-    isFutureListing(notice) {
+    parseTradeTime(notice) {
         try {
             const publishedAt = luxon_1.DateTime.fromFormat(notice.published_at, 'yyyy-MM-dd HH:mm:ss', {
                 zone: 'Asia/Seoul'
             });
-            const now = luxon_1.DateTime.now().setZone('Asia/Seoul');
-            const isFuture = publishedAt > now;
-            if (isFuture) {
-                console.log(`⏰ Future listing detected: ${notice.title} (${notice.published_at})`);
+            if (!publishedAt.isValid) {
+                return null;
             }
-            return isFuture;
+            const utc = publishedAt.toUTC();
+            return utc.toJSDate();
         }
         catch (error) {
-            console.error('❌ Error checking future listing:', error);
-            return false;
+            console.error('❌ Error parsing trade time:', error);
+            return null;
         }
     }
     /**
@@ -166,13 +170,6 @@ class NoticeClient {
         return 'low';
     }
     /**
-     * Génère un EventId unique et déterministe
-     */
-    generateEventId(notice) {
-        const data = `bithumb:notice:${notice.published_at}:${notice.title}:${notice.pc_url}`;
-        return (0, crypto_1.createHash)('sha256').update(data).digest('hex');
-    }
-    /**
      * Traite une notice et la convertit en format interne
      */
     processNotice(notice) {
@@ -181,27 +178,31 @@ class NoticeClient {
             return null;
         }
         // Extraire la base du token
-        const base = this.extractTokenBase(notice);
+        const base = this.extractTokenBase(notice.title, notice.content || '');
         if (!base) {
             return null;
         }
+        // Extraire les marchés
+        const markets = this.extractMarkets(notice);
         // Convertir en UTC
         const publishedAtUtc = this.parsePublishedUtc(notice);
-        // Vérifier si c'est un pré-listing
-        const isFuture = this.isFutureListing(notice);
-        // Générer l'EventId
-        const eventId = this.generateEventId(notice);
+        // Parser le trade time pour le gating
+        const tradeTimeUtc = this.parseTradeTime(notice);
         // Calculer la priorité
         const priority = this.calculatePriority(notice);
+        // Status basé sur le timing (sera recalculé lors du traitement)
+        const status = tradeTimeUtc && tradeTimeUtc > new Date() ? 'scheduled' : 'live';
         const processedNotice = {
-            eventId,
+            eventId: '', // Sera généré lors du traitement avec buildEventId
             base,
             title: notice.title,
             url: notice.pc_url,
             publishedAtUtc,
+            markets,
             priority,
-            status: isFuture ? 'scheduled' : 'live',
-            source: 'bithumb.api'
+            status,
+            source: 'bithumb.notice',
+            tradeTimeUtc: tradeTimeUtc || undefined
         };
         console.log(`✅ Notice processed: ${base} (${priority} priority, ${processedNotice.status})`);
         return processedNotice;

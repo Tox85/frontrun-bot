@@ -1,6 +1,28 @@
-FROM node:20-alpine
+# Dockerfile optimisé pour Railway
+FROM node:20-alpine AS builder
 
-# Créer l'utilisateur non-root
+# Installer les dépendances de build
+RUN apk add --no-cache python3 make g++
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier les fichiers de dépendances
+COPY package*.json ./
+
+# Installer toutes les dépendances (dev + prod)
+RUN npm ci
+
+# Copier le code source
+COPY . .
+
+# Construire l'application
+RUN npm run build
+
+# Étape de production
+FROM node:20-alpine AS production
+
+# Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S bot -u 1001
 
@@ -10,30 +32,20 @@ WORKDIR /app
 # Copier les fichiers de dépendances
 COPY package*.json ./
 
-# Installer les dépendances
+# Installer uniquement les dépendances de production
 RUN npm ci --only=production && npm cache clean --force
 
-# Copier le code source
-COPY . .
+# Copier les fichiers construits
+COPY --from=builder /app/dist ./dist
 
-# Créer le dossier data
+# Créer le répertoire de données et définir les permissions
 RUN mkdir -p /app/data && chown -R bot:nodejs /app/data
-
-# Compiler le projet
-RUN npm run build
 
 # Changer vers l'utilisateur non-root
 USER bot
 
-# Exposer le port (utiliser la variable d'environnement)
-EXPOSE ${PORT:-3000}
+# Exposer le port
+EXPOSE 3001
 
-# Volume pour les données persistantes
-VOLUME ["/app/data"]
-
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
-
-# Commande de démarrage (production)
-CMD ["npm", "run", "start:prod"]
+# Commande de démarrage
+CMD ["npm", "start"]

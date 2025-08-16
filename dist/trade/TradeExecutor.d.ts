@@ -1,7 +1,7 @@
 import { HyperliquidAdapter } from '../exchanges/HyperliquidAdapter';
 import { ExitScheduler } from './ExitScheduler';
 import { PositionSizer } from './PositionSizer';
-import { TokenRegistry } from '../store/TokenRegistry';
+import { BaselineManager } from '../core/BaselineManager';
 import { PerpCatalog } from '../store/PerpCatalog';
 import { TelegramService } from '../notify/TelegramService';
 export interface TradeConfig {
@@ -32,13 +32,13 @@ export declare class TradeExecutor {
     private hyperliquid;
     private exitScheduler;
     private positionSizer;
-    private tokenRegistry;
+    private baselineManager;
     private perpCatalog;
     private telegramService;
     private config;
     private activeTrades;
     private cooldowns;
-    constructor(hyperliquid: HyperliquidAdapter, exitScheduler: ExitScheduler, positionSizer: PositionSizer, tokenRegistry: TokenRegistry, perpCatalog: PerpCatalog, telegramService: TelegramService, config: TradeConfig);
+    constructor(hyperliquid: HyperliquidAdapter, exitScheduler: ExitScheduler, positionSizer: PositionSizer, baselineManager: BaselineManager, perpCatalog: PerpCatalog, telegramService: TelegramService, config: TradeConfig);
     /**
      * Exécute un trade d'opportunité (T0 ou T2)
      */

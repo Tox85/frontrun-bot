@@ -5,17 +5,17 @@ class TradeExecutor {
     hyperliquid;
     exitScheduler;
     positionSizer;
-    tokenRegistry;
+    baselineManager;
     perpCatalog;
     telegramService;
     config;
     activeTrades = new Map();
     cooldowns = new Map();
-    constructor(hyperliquid, exitScheduler, positionSizer, tokenRegistry, perpCatalog, telegramService, config) {
+    constructor(hyperliquid, exitScheduler, positionSizer, baselineManager, perpCatalog, telegramService, config) {
         this.hyperliquid = hyperliquid;
         this.exitScheduler = exitScheduler;
         this.positionSizer = positionSizer;
-        this.tokenRegistry = tokenRegistry;
+        this.baselineManager = baselineManager;
         this.perpCatalog = perpCatalog;
         this.telegramService = telegramService;
         this.config = config;
@@ -32,7 +32,7 @@ class TradeExecutor {
                 return null;
             }
             // 2. Vérifier que le token n'est pas déjà dans la baseline
-            const isNew = await this.tokenRegistry.isNew(opportunity.token);
+            const isNew = await this.baselineManager.isTokenNew(opportunity.token);
             if (!isNew) {
                 console.log(`📚 ${opportunity.token} déjà dans la baseline, trade ignoré`);
                 return null;

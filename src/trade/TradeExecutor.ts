@@ -1,7 +1,7 @@
 import { HyperliquidAdapter } from '../exchanges/HyperliquidAdapter';
 import { ExitScheduler } from './ExitScheduler';
 import { PositionSizer } from './PositionSizer';
-import { TokenRegistry } from '../store/TokenRegistry';
+import { BaselineManager } from '../core/BaselineManager';
 import { PerpCatalog } from '../store/PerpCatalog';
 import { TelegramService } from '../notify/TelegramService';
 
@@ -36,7 +36,7 @@ export class TradeExecutor {
   private hyperliquid: HyperliquidAdapter;
   private exitScheduler: ExitScheduler;
   private positionSizer: PositionSizer;
-  private tokenRegistry: TokenRegistry;
+  private baselineManager: BaselineManager;
   private perpCatalog: PerpCatalog;
   private telegramService: TelegramService;
   private config: TradeConfig;
@@ -48,7 +48,7 @@ export class TradeExecutor {
     hyperliquid: HyperliquidAdapter,
     exitScheduler: ExitScheduler,
     positionSizer: PositionSizer,
-    tokenRegistry: TokenRegistry,
+    baselineManager: BaselineManager,
     perpCatalog: PerpCatalog,
     telegramService: TelegramService,
     config: TradeConfig
@@ -56,7 +56,7 @@ export class TradeExecutor {
     this.hyperliquid = hyperliquid;
     this.exitScheduler = exitScheduler;
     this.positionSizer = positionSizer;
-    this.tokenRegistry = tokenRegistry;
+    this.baselineManager = baselineManager;
     this.perpCatalog = perpCatalog;
     this.telegramService = telegramService;
     this.config = config;
@@ -76,7 +76,7 @@ export class TradeExecutor {
       }
 
       // 2. Vérifier que le token n'est pas déjà dans la baseline
-      const isNew = await this.tokenRegistry.isNew(opportunity.token);
+      const isNew = await this.baselineManager.isTokenNew(opportunity.token);
       if (!isNew) {
         console.log(`📚 ${opportunity.token} déjà dans la baseline, trade ignoré`);
         return null;

@@ -1,5 +1,6 @@
-import { TokenRegistry } from '../store/TokenRegistry';
+import { Database } from 'sqlite3';
 import { EventEmitter } from 'events';
+import { EventStore } from '../core/EventStore';
 export interface BithumbWSEvent {
     base: string;
     symbol: string;
@@ -16,13 +17,12 @@ export interface WSConfig {
     maxReconnectAttempts: number;
     reconnectIntervalMs: number;
     heartbeatIntervalMs: number;
-    aggressiveMode: boolean;
     connectionTimeoutMs: number;
-    messageBufferSize: number;
 }
 export declare class BithumbWSWatcher extends EventEmitter {
     private config;
-    private tokenRegistry;
+    private db;
+    private eventStore;
     private ws;
     private isRunning;
     private isConnected;
@@ -34,12 +34,10 @@ export declare class BithumbWSWatcher extends EventEmitter {
     private baseMutex;
     private heartbeatInterval;
     private isStopped;
-    private messageBuffer;
-    private bufferFlushInterval;
     private connectionStartTime;
     private lastMessageTime;
     private performanceMetrics;
-    constructor(tokenRegistry: TokenRegistry, config?: Partial<WSConfig>);
+    constructor(db: Database, eventStore: EventStore, config?: Partial<WSConfig>);
     start(): Promise<void>;
     stop(): void;
     private connect;
@@ -49,33 +47,20 @@ export declare class BithumbWSWatcher extends EventEmitter {
     private extractBaseFromSymbol;
     private checkNewToken;
     private handleNewToken;
+    private performDoubleCheckREST;
     private doubleCheckREST;
+    private generateEventId;
+    private isInBaselineKR;
+    private isInCooldown;
+    private isEventProcessed;
+    private addProcessedEvent;
+    private addCooldown;
     private startWarmup;
     private startHeartbeat;
     private stopHeartbeat;
     private handleReconnection;
     private disconnect;
     private cleanupTimers;
-    private startMessageBuffer;
-    private stopMessageBuffer;
-    private processMessageBatch;
     private handleWebSocketMessage;
-    private processWebSocketMessage;
-    getPerformanceMetrics(): {
-        bufferSize: number;
-        isConnected: boolean;
-        reconnectAttempts: number;
-        lastMessageAge: number;
-        messagesProcessed: number;
-        tokensDetected: number;
-        avgProcessingTime: number;
-        connectionUptime: number;
-    };
-    getStatus(): {
-        isRunning: boolean;
-        isConnected: boolean;
-        reconnectAttempts: number;
-        config: WSConfig;
-    };
-    forceReconnect(): Promise<void>;
+    getMetrics(): any;
 }

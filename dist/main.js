@@ -7,23 +7,22 @@ const TradeExecutor_1 = require("./trade/TradeExecutor");
 const ExitScheduler_1 = require("./trade/ExitScheduler");
 const PositionSizer_1 = require("./trade/PositionSizer");
 const PerpCatalog_1 = require("./store/PerpCatalog");
-const TokenRegistry_1 = require("./store/TokenRegistry");
 const TelegramService_1 = require("./notify/TelegramService");
 const HttpServer_1 = require("./api/HttpServer");
 const SingletonGuard_1 = require("./core/SingletonGuard");
 const NoticeClient_1 = require("./watchers/NoticeClient");
 const BithumbWSWatcher_1 = require("./watchers/BithumbWSWatcher");
+const HealthMonitor_1 = require("./core/HealthMonitor");
 const sqlite3_1 = require("sqlite3");
 const Migrations_1 = require("./store/Migrations");
+const EventStore_1 = require("./core/EventStore");
+const EventId_1 = require("./core/EventId");
 // Configuration
 const CONFIG = {
-    // Bithumb
-    BITHUMB_API_KEY: process.env.BITHUMB_API_KEY || '',
-    BITHUMB_SECRET: process.env.BITHUMB_SECRET || '',
     // Telegram
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
     TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
-    // Exchanges
+    // Exchanges (pour trading uniquement, pas pour détection)
     BYBIT_API_KEY: process.env.BYBIT_API_KEY || '',
     BYBIT_SECRET: process.env.BYBIT_SECRET || '',
     HYPERLIQUID_API_KEY: process.env.HYPERLIQUID_API_KEY || '',
@@ -34,13 +33,13 @@ const CONFIG = {
     TRADING_ENABLED: process.env.TRADING_ENABLED === 'true',
     MAX_POSITION_SIZE_USD: parseFloat(process.env.MAX_POSITION_SIZE_USD || '100'),
     RISK_PERCENT: parseFloat(process.env.RISK_PERCENT || '2'),
-    // Polling
-    T0_POLL_INTERVAL_MS: parseInt(process.env.T0_POLL_INTERVAL_MS || '5000'),
+    // Polling T0 (≥1100ms comme requis)
+    T0_POLL_INTERVAL_MS: Math.max(1100, parseInt(process.env.T0_POLL_INTERVAL_MS || '1100')),
     T0_MAX_NOTICES_PER_POLL: parseInt(process.env.T0_MAX_NOTICES_PER_POLL || '10'),
-    // WebSocket
+    // WebSocket T2
     WS_ENABLED: process.env.WS_ENABLED !== 'false',
-    WS_DEBOUNCE_MS: parseInt(process.env.WS_DEBOUNCE_MS || '100'),
-    WS_WARMUP_MS: parseInt(process.env.WS_WARMUP_MS || '5000'),
+    WS_DEBOUNCE_MS: parseInt(process.env.WS_DEBOUNCE_MS || '10000'), // 10s comme requis
+    WS_WARMUP_MS: parseInt(process.env.WS_WARMUP_MS || '5000'), // 5s comme requis
     // HTTP Server
     HTTP_PORT: parseInt(process.env.HTTP_PORT || '3000'),
     // Database
@@ -49,7 +48,7 @@ const CONFIG = {
     HYPERLIQUID_WALLET_ADDRESS: process.env.HYPERLIQUID_WALLET_ADDRESS || ''
 };
 async function main() {
-    console.log('🚀 Starting Frontrun Bot - Ultra-Competitive Edition...');
+    console.log('🚀 Starting Frontrun Bot - Bithumb-only Production Edition...');
     try {
         // 1. Initialiser la base de données et les migrations
         console.log('🗄️ Initializing database...');
@@ -64,8 +63,20 @@ async function main() {
         const isLeader = await singletonGuard.tryAcquireLeadership();
         if (!isLeader) {
             console.log('👀 Running in OBSERVER_MODE - not the leader instance');
-            // En mode observateur, on peut toujours démarrer le serveur HTTP pour le monitoring
-            const httpServer = new HttpServer_1.HttpServer(new TokenRegistry_1.TokenRegistry(db), new PerpCatalog_1.PerpCatalog(db), singletonGuard, null, null, new TelegramService_1.TelegramService({ botToken: '', chatId: '' }), null);
+            // En mode observateur, démarrer le serveur HTTP pour le monitoring
+            const httpServer = new HttpServer_1.HttpServer(db, null, // baselineManager
+            null, // perpCatalog
+            singletonGuard, null, // noticeClient
+            null, // wsWatcher
+            new TelegramService_1.TelegramService({ botToken: '', chatId: '' }), null, // tradeExecutor
+            null, // healthMonitor
+            new EventStore_1.EventStore(db), // eventStore
+            {
+                port: CONFIG.HTTP_PORT,
+                host: '0.0.0.0',
+                enableCors: true,
+                enableLogging: true
+            });
             await httpServer.start();
             console.log(`🌐 HTTP Server started on port ${CONFIG.HTTP_PORT} (OBSERVER_MODE)`);
             // Garder l'instance en vie pour le monitoring
@@ -78,28 +89,19 @@ async function main() {
             return;
         }
         console.log('👑 Running as LEADER instance');
-        // Debug: Afficher la configuration Hyperliquid
-        console.log('🔧 Hyperliquid Config Debug:');
-        console.log(`   • API Key: ${CONFIG.HYPERLIQUID_API_KEY ? '✅ SET' : '❌ NOT SET'}`);
-        console.log(`   • Wallet Address: ${CONFIG.HYPERLIQUID_WALLET_ADDRESS ? '✅ SET' : '❌ NOT SET'}`);
-        console.log(`   • Wallet Value: ${CONFIG.HYPERLIQUID_WALLET_ADDRESS || 'EMPTY'}`);
-        // Debug: Afficher la configuration WebSocket
-        console.log('🔧 WebSocket Config Debug:');
-        console.log(`   • WS_ENABLED: ${CONFIG.WS_ENABLED ? '✅ TRUE' : '❌ FALSE'}`);
-        console.log(`   • WS_DEBOUNCE_MS: ${CONFIG.WS_DEBOUNCE_MS}ms`);
-        console.log(`   • WS_WARMUP_MS: ${CONFIG.WS_WARMUP_MS}ms`);
         // 3. Initialiser les composants de base
         console.log('🔧 Initializing core components...');
-        const tokenRegistry = new TokenRegistry_1.TokenRegistry(db);
-        await tokenRegistry.initialize();
         const perpCatalog = new PerpCatalog_1.PerpCatalog(db);
         await perpCatalog.initialize();
         const telegramService = new TelegramService_1.TelegramService({
             botToken: CONFIG.TELEGRAM_BOT_TOKEN,
             chatId: CONFIG.TELEGRAM_CHAT_ID
         });
-        const baselineManager = new BaselineManager_1.BaselineManager(tokenRegistry);
+        const baselineManager = new BaselineManager_1.BaselineManager(db);
         await baselineManager.initialize();
+        // EventStore centralisé pour la déduplication
+        const eventStore = new EventStore_1.EventStore(db);
+        console.log('🔒 EventStore initialized for centralized deduplication');
         const exchangeManager = new ExchangeManager_1.ExchangeManager({
             hyperliquid: {
                 testnet: true,
@@ -133,51 +135,81 @@ async function main() {
         // Vérifier que Hyperliquid est disponible
         const hyperliquid = exchangeManager.getHyperliquid();
         if (!hyperliquid) {
-            console.log('⚠️ Hyperliquid adapter not available, running in advanced monitoring mode');
-            // 4. Initialiser les watchers en mode monitoring avancé
-            console.log('👀 Initializing advanced monitoring watchers...');
-            // T0: NoticeClient ultra-compétitif
+            console.log('⚠️ Hyperliquid adapter not available, running in monitoring mode');
+            // 4. Initialiser les watchers en mode monitoring
+            console.log('👀 Initializing monitoring watchers...');
+            // T0: NoticeClient (API publique notices)
             const noticeClient = new NoticeClient_1.NoticeClient();
-            console.log('📡 NoticeClient initialized for ultra-competitive T0 detection');
+            console.log('📡 NoticeClient initialized for T0 detection (API publique)');
             // T2: WebSocket Bithumb
             let wsWatcher = null;
             if (CONFIG.WS_ENABLED) {
-                wsWatcher = new BithumbWSWatcher_1.BithumbWSWatcher(tokenRegistry, {
+                wsWatcher = new BithumbWSWatcher_1.BithumbWSWatcher(db, eventStore, {
                     wsUrl: 'wss://pubwss.bithumb.com/pub/ws',
                     debounceMs: CONFIG.WS_DEBOUNCE_MS,
                     warmupMs: CONFIG.WS_WARMUP_MS
                 });
                 console.log('🔌 WebSocket watcher initialized');
             }
+            // HealthMonitor
+            const healthMonitor = new HealthMonitor_1.HealthMonitor(db, baselineManager, process.env.INSTANCE_ID || 'monitor-1', wsWatcher || undefined, telegramService || undefined, undefined);
             // 5. Démarrer les composants
-            console.log('🚀 Starting advanced monitoring components...');
-            // Démarrer le polling T0 ultra-compétitif
-            console.log('📡 Starting T0 detection...');
+            console.log('🚀 Starting monitoring components...');
+            // Démarrer le polling T0 (≥1100ms comme requis)
+            console.log(`📡 Starting T0 detection (interval: ${CONFIG.T0_POLL_INTERVAL_MS}ms)...`);
             let t0Polls = 0;
             const t0Interval = setInterval(async () => {
                 try {
                     t0Polls++;
                     console.log(`📡 T0 Poll #${t0Polls} - Checking for new listings...`);
+                    const startTime = Date.now();
                     const listings = await noticeClient.getLatestListings(CONFIG.T0_MAX_NOTICES_PER_POLL);
+                    const processingTime = Date.now() - startTime;
+                    // Enregistrer la latence de traitement
+                    healthMonitor.recordNoticeLatency(processingTime);
                     for (const listing of listings) {
-                        // Vérifier si c'est un nouveau token
-                        const isNew = await tokenRegistry.isNew(listing.base);
-                        if (isNew) {
-                            console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
-                            // Enregistrer le nouveau token
-                            await tokenRegistry.addProcessedEvent({
-                                eventId: listing.eventId,
+                        console.log(`🔍 Processing listing: ${listing.base} (${listing.eventId.substring(0, 8)}...)`);
+                        // PHASE 1: DÉDUPLICATION CENTRALISÉE AVANT TOUT TRAITEMENT
+                        const eventId = (0, EventId_1.buildEventId)({
+                            source: 'bithumb.notice',
+                            base: listing.base,
+                            url: listing.url,
+                            markets: listing.markets || [],
+                            tradeTimeUtc: listing.publishedAtUtc
+                        });
+                        try {
+                            const dedupResult = await eventStore.tryMarkProcessed({
+                                eventId,
+                                source: 'bithumb.notice',
                                 base: listing.base,
                                 url: listing.url,
+                                markets: listing.markets || [],
                                 tradeTimeUtc: listing.publishedAtUtc,
-                                source: 'bithumb.notice'
+                                rawTitle: listing.title
                             });
+                            if (dedupResult === 'DUPLICATE') {
+                                console.log(`⏭️ [DEDUP] DUPLICATE ${eventId.substring(0, 8)}... base=${listing.base} — SKIP`);
+                                continue; // STOP NET - aucune notif, aucun trade
+                            }
+                            console.log(`✅ [DEDUP] INSERTED ${eventId.substring(0, 8)}... base=${listing.base}`);
+                        }
+                        catch (error) {
+                            console.error(`❌ [DEDUP] Error in deduplication:`, error);
+                            continue; // En cas d'erreur, passer au suivant
+                        }
+                        // PHASE 2: GATING SYMBOLIQUE (seulement si INSERTED)
+                        const isNew = await baselineManager.isTokenNew(listing.base);
+                        if (isNew) {
+                            console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
                             // Notification Telegram
                             if (CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID) {
-                                const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **ULTRA-COMPETITIVE T0 DETECTION** ⚡\n\n💰 **TRADING DISABLED** - Hyperliquid connection issue`;
+                                const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **T0 DETECTION** ⚡\n\n💰 **TRADING DISABLED** - Hyperliquid connection issue`;
                                 await telegramService.sendMessage(message);
                             }
                             console.log(`💰 Trade execution disabled (Hyperliquid connection issue)`);
+                        }
+                        else {
+                            console.log(`⏭️ Token already in baseline: ${listing.base}`);
                         }
                     }
                     if (listings.length > 0) {
@@ -186,6 +218,15 @@ async function main() {
                 }
                 catch (error) {
                     console.error(`❌ T0 Poll #${t0Polls} failed:`, error);
+                    // Enregistrer les erreurs 5xx/429
+                    if (error instanceof Error) {
+                        if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+                            healthMonitor.recordNotice5xx();
+                        }
+                        else if (error.message.includes('429')) {
+                            healthMonitor.recordNotice429();
+                        }
+                    }
                 }
             }, CONFIG.T0_POLL_INTERVAL_MS);
             // Démarrer le WebSocket T2
@@ -195,9 +236,14 @@ async function main() {
             }
             // 6. Démarrer le serveur HTTP
             console.log('🌐 Starting HTTP server...');
-            const httpServer = new HttpServer_1.HttpServer(tokenRegistry, perpCatalog, singletonGuard, null, // noticePoller
-            wsWatcher, telegramService, null // tradeExecutor
-            );
+            const httpServer = new HttpServer_1.HttpServer(db, baselineManager, perpCatalog, singletonGuard, noticeClient, wsWatcher, telegramService, null, // tradeExecutor
+            healthMonitor || undefined, eventStore, // eventStore
+            {
+                port: CONFIG.HTTP_PORT,
+                host: '0.0.0.0',
+                enableCors: true,
+                enableLogging: true
+            });
             await httpServer.start();
             console.log(`✅ HTTP Server started on port ${CONFIG.HTTP_PORT}`);
             // 7. Log du statut
@@ -206,7 +252,7 @@ async function main() {
             console.log(`   • T0 Detection: ✅ ACTIVE (${CONFIG.T0_POLL_INTERVAL_MS}ms interval)`);
             console.log(`   • T2 Detection: ${wsWatcher ? '✅ ACTIVE' : '❌ DISABLED'}`);
             console.log(`   • Trading: ❌ DISABLED (Hyperliquid connection issue)`);
-            console.log(`   • Hyperliquid: ❌ CONNECTION FAILED (HTTP 405)`);
+            console.log(`   • Hyperliquid: ❌ CONNECTION FAILED`);
             console.log(`   • Telegram: ${CONFIG.TELEGRAM_BOT_TOKEN ? '✅ CONFIGURED' : '❌ NOT CONFIGURED'}`);
             console.log(`   • HTTP Server: ✅ PORT ${CONFIG.HTTP_PORT}`);
             // 8. Gestion de l'arrêt
@@ -222,14 +268,13 @@ async function main() {
                 console.log('✅ Bot shutdown complete');
                 process.exit(0);
             });
-            console.log('\n🚀 Bot is running in ADVANCED MONITORING MODE! Press Ctrl+C to stop.');
-            console.log('🔧 Hyperliquid issue: HTTP 405 on /info endpoint - check API documentation');
+            console.log('\n🚀 Bot is running in MONITORING MODE! Press Ctrl+C to stop.');
             return;
         }
         console.log('✅ Hyperliquid adapter available - trading mode activated');
         // 4. Initialiser le TradeExecutor
         console.log('💰 Initializing TradeExecutor...');
-        const tradeExecutor = new TradeExecutor_1.TradeExecutor(hyperliquid, exitScheduler, positionSizer, tokenRegistry, perpCatalog, telegramService, {
+        const tradeExecutor = new TradeExecutor_1.TradeExecutor(hyperliquid, exitScheduler, positionSizer, baselineManager, perpCatalog, telegramService, {
             riskPct: CONFIG.RISK_PERCENT / 100,
             leverageTarget: 5,
             cooldownHours: 24,
@@ -237,60 +282,91 @@ async function main() {
         });
         // 5. Initialiser les watchers
         console.log('👀 Initializing watchers...');
-        // T0: NoticeClient ultra-compétitif
+        // T0: NoticeClient (API publique notices)
         const noticeClient = new NoticeClient_1.NoticeClient();
-        console.log('📡 NoticeClient initialized for ultra-competitive T0 detection');
+        console.log('📡 NoticeClient initialized for T0 detection (API publique)');
         // T2: WebSocket Bithumb
         let wsWatcher = null;
         if (CONFIG.WS_ENABLED) {
-            wsWatcher = new BithumbWSWatcher_1.BithumbWSWatcher(tokenRegistry, {
+            wsWatcher = new BithumbWSWatcher_1.BithumbWSWatcher(db, eventStore, {
                 wsUrl: 'wss://pubwss.bithumb.com/pub/ws',
                 debounceMs: CONFIG.WS_DEBOUNCE_MS,
                 warmupMs: CONFIG.WS_WARMUP_MS
             });
             console.log('🔌 WebSocket watcher initialized');
         }
+        // HealthMonitor
+        const healthMonitor = new HealthMonitor_1.HealthMonitor(db, baselineManager, process.env.INSTANCE_ID || 'leader-1', wsWatcher || undefined, telegramService, undefined);
         // 6. Démarrer les composants
         console.log('🚀 Starting components...');
-        // Démarrer le polling T0 ultra-compétitif
-        console.log('📡 Starting T0 detection...');
+        // Démarrer le polling T0 (≥1100ms comme requis)
+        console.log(`📡 Starting T0 detection (interval: ${CONFIG.T0_POLL_INTERVAL_MS}ms)...`);
         let t0Polls = 0;
         const t0Interval = setInterval(async () => {
             try {
                 t0Polls++;
                 console.log(`📡 T0 Poll #${t0Polls} - Checking for new listings...`);
+                const startTime = Date.now();
                 const listings = await noticeClient.getLatestListings(CONFIG.T0_MAX_NOTICES_PER_POLL);
+                const processingTime = Date.now() - startTime;
+                // Enregistrer la latence de traitement
+                healthMonitor.recordNoticeLatency(processingTime);
                 for (const listing of listings) {
-                    // Vérifier si c'est un nouveau token
-                    const isNew = await tokenRegistry.isNew(listing.base);
-                    if (isNew) {
-                        console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
-                        // Enregistrer le nouveau token
-                        await tokenRegistry.addProcessedEvent({
-                            eventId: listing.eventId,
+                    // PHASE 1: DÉDUPLICATION CENTRALISÉE AVANT TOUT TRAITEMENT
+                    const eventId = (0, EventId_1.buildEventId)({
+                        source: 'bithumb.notice',
+                        base: listing.base,
+                        url: listing.url,
+                        markets: listing.markets || [],
+                        tradeTimeUtc: listing.publishedAtUtc
+                    });
+                    try {
+                        const dedupResult = await eventStore.tryMarkProcessed({
+                            eventId,
+                            source: 'bithumb.notice',
                             base: listing.base,
                             url: listing.url,
+                            markets: listing.markets || [],
                             tradeTimeUtc: listing.publishedAtUtc,
-                            source: 'bithumb.notice'
+                            rawTitle: listing.title
                         });
+                        if (dedupResult === 'DUPLICATE') {
+                            console.log(`⏭️ [DEDUP] DUPLICATE ${eventId.substring(0, 8)}... base=${listing.base} — SKIP`);
+                            continue; // STOP NET - aucune notif, aucun trade
+                        }
+                        console.log(`✅ [DEDUP] INSERTED ${eventId.substring(0, 8)}... base=${listing.base}`);
+                    }
+                    catch (error) {
+                        console.error(`❌ [DEDUP] Error in deduplication:`, error);
+                        continue; // En cas d'erreur, passer au suivant
+                    }
+                    // PHASE 2: GATING SYMBOLIQUE (seulement si INSERTED)
+                    const isNew = await baselineManager.isTokenNew(listing.base);
+                    if (isNew) {
+                        console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
                         // Notification Telegram
                         if (CONFIG.TELEGRAM_BOT_TOKEN && CONFIG.TELEGRAM_CHAT_ID) {
-                            const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **ULTRA-COMPETITIVE T0 DETECTION** ⚡`;
+                            const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **T0 DETECTION** ⚡`;
                             await telegramService.sendMessage(message);
                         }
                         // Exécuter le trade si activé
                         if (CONFIG.TRADING_ENABLED) {
                             try {
                                 console.log(`💰 Executing trade for ${listing.base}...`);
+                                const tradeStartTime = Date.now();
                                 await tradeExecutor.executeOpportunity({
                                     token: listing.base,
                                     source: 'T0_NOTICE',
                                     timestamp: new Date().toISOString()
                                 });
+                                const tradeTime = Date.now() - tradeStartTime;
+                                healthMonitor.recordDetectionLatency(tradeTime);
+                                healthMonitor.recordTradeExecuted();
                                 console.log(`✅ Trade executed for ${listing.base}`);
                             }
                             catch (tradeError) {
                                 console.error(`❌ Trade execution failed for ${listing.base}:`, tradeError);
+                                healthMonitor.recordTradeFailed();
                             }
                         }
                         else {
@@ -304,6 +380,15 @@ async function main() {
             }
             catch (error) {
                 console.error(`❌ T0 Poll #${t0Polls} failed:`, error);
+                // Enregistrer les erreurs 5xx/429
+                if (error instanceof Error) {
+                    if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+                        healthMonitor.recordNotice5xx();
+                    }
+                    else if (error.message.includes('429')) {
+                        healthMonitor.recordNotice429();
+                    }
+                }
             }
         }, CONFIG.T0_POLL_INTERVAL_MS);
         // Démarrer le WebSocket T2
@@ -313,8 +398,8 @@ async function main() {
         }
         // 7. Démarrer le serveur HTTP
         console.log('🌐 Starting HTTP server...');
-        const httpServer = new HttpServer_1.HttpServer(tokenRegistry, perpCatalog, singletonGuard, null, // noticePoller
-        wsWatcher, telegramService, tradeExecutor, {
+        const httpServer = new HttpServer_1.HttpServer(db, baselineManager, perpCatalog, singletonGuard, noticeClient, wsWatcher, telegramService, tradeExecutor, healthMonitor, eventStore, // eventStore
+        {
             port: CONFIG.HTTP_PORT,
             host: '0.0.0.0',
             enableCors: true,
