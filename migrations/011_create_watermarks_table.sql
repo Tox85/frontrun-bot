@@ -5,19 +5,17 @@
 CREATE TABLE IF NOT EXISTS watermarks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
-    base TEXT NOT NULL,
-    watermark TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source, base)
+    last_published_at INTEGER NOT NULL DEFAULT 0,
+    last_notice_uid TEXT,
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(source)
 );
 
 -- Index pour optimiser les recherches
-CREATE INDEX IF NOT EXISTS idx_watermarks_source_base ON watermarks(source, base);
-CREATE INDEX IF NOT EXISTS idx_watermarks_timestamp ON watermarks(timestamp);
+CREATE INDEX IF NOT EXISTS idx_watermarks_source ON watermarks(source);
+CREATE INDEX IF NOT EXISTS idx_watermarks_last_published ON watermarks(last_published_at);
 
 -- Insertion des watermarks par défaut si la table est vide
-INSERT OR IGNORE INTO watermarks (source, base, watermark, timestamp) VALUES
-    ('bithumb.notice', 'KRW', '0', 0),
-    ('bithumb.websocket', 'KRW', '0', 0);
+INSERT OR IGNORE INTO watermarks (source, last_published_at, last_notice_uid, updated_at) VALUES
+    ('bithumb.notice', 0, NULL, strftime('%s', 'now')),
+    ('bithumb.websocket', 0, NULL, strftime('%s', 'now'));
