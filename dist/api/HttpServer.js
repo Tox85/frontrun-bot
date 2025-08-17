@@ -5,6 +5,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HttpServer = void 0;
 const express_1 = __importDefault(require("express"));
+const DashboardController_1 = require("./DashboardController");
+const StructuredLogger_1 = require("../core/StructuredLogger");
+const AdvancedMetrics_1 = require("../core/AdvancedMetrics");
 class HttpServer {
     app;
     server = null;
@@ -19,6 +22,7 @@ class HttpServer {
     tradeExecutor;
     healthMonitor;
     eventStore;
+    dashboardController = null;
     // Métriques du système unifié
     unifiedMetrics = {
         t0_live_new: 0,
@@ -41,6 +45,10 @@ class HttpServer {
         this.tradeExecutor = tradeExecutor;
         this.healthMonitor = healthMonitor;
         this.eventStore = eventStore;
+        // Initialiser le dashboard
+        const logger = new StructuredLogger_1.StructuredLogger(StructuredLogger_1.LogLevel.INFO);
+        const metrics = new AdvancedMetrics_1.AdvancedMetrics(logger);
+        this.dashboardController = new DashboardController_1.DashboardController(metrics, logger);
         this.config = {
             port: 3030,
             host: '0.0.0.0',
@@ -184,6 +192,33 @@ class HttpServer {
                 res.status(500).json({ error: 'Simulate WS failed' });
             }
         });
+        // Dashboard
+        this.app.get('/dashboard', async (req, res) => {
+            try {
+                if (!this.dashboardController) {
+                    return res.status(503).json({ error: 'Dashboard not available' });
+                }
+                const dashboardData = this.dashboardController.getDashboardData();
+                return res.json(dashboardData);
+            }
+            catch (error) {
+                console.error('❌ Dashboard failed:', error);
+                return res.status(500).json({ error: 'Dashboard failed' });
+            }
+        });
+        this.app.get('/dashboard/html', async (req, res) => {
+            try {
+                if (!this.dashboardController) {
+                    return res.status(503).json({ error: 'Dashboard not available' });
+                }
+                res.setHeader('Content-Type', 'text/html');
+                return res.send(this.dashboardController.getDashboardHTML());
+            }
+            catch (error) {
+                console.error('❌ Dashboard HTML failed:', error);
+                return res.status(500).json({ error: 'Dashboard HTML failed' });
+            }
+        });
         // Database schema endpoint
         this.app.get('/db/schema', async (req, res) => {
             try {
@@ -235,12 +270,44 @@ class HttpServer {
     }
     async getHealthStatus() {
         if (this.healthMonitor) {
-            return await this.healthMonitor.getHealthStatus();
+            const healthStatus = await this.healthMonitor.getHealthStatus();
+            // Ajouter les informations de baseline et circuit-breaker
+            if (this.baselineManager) {
+                const baselineHealth = await this.baselineManager.healthCheck();
+                healthStatus.baseline_state = baselineHealth.state;
+                healthStatus.baseline_cb_state = baselineHealth.circuitBreakerState;
+                healthStatus.last_baseline_fetch_ms = baselineHealth.lastBaselineFetchMs;
+                healthStatus.errors_999_last_5m = baselineHealth.errors999Last5m;
+            }
+            // Ajouter les informations T0
+            if (this.noticeClient) {
+                healthStatus.t0_enabled = this.noticeClient.isEnabled();
+                healthStatus.t0_cb_state = this.noticeClient.getCircuitBreakerStats().state;
+            }
+            // Ajouter les informations T2
+            if (this.wsWatcher) {
+                healthStatus.t2_enabled = true;
+                healthStatus.ws_connected = this.wsWatcher.isConnected || false;
+            }
+            else {
+                healthStatus.t2_enabled = false;
+                healthStatus.ws_connected = false;
+            }
+            // Ajouter l'ID de l'instance leader
+            healthStatus.leader_instance_id = process.env.INSTANCE_ID || 'unknown';
+            return healthStatus;
         }
         // Fallback si pas de HealthMonitor
         return {
             status: 'unknown',
             timestamp: new Date().toISOString(),
+            baseline_state: 'UNKNOWN',
+            baseline_cb_state: 'UNKNOWN',
+            t0_enabled: false,
+            t0_cb_state: 'UNKNOWN',
+            t2_enabled: false,
+            ws_connected: false,
+            leader_instance_id: process.env.INSTANCE_ID || 'unknown',
             message: 'HealthMonitor not available'
         };
     }
@@ -274,10 +341,35 @@ class HttpServer {
                 console.warn('⚠️ Erreur lors de la récupération des métriques PerpCatalog:', error);
             }
         }
+        // Ajouter les métriques des circuit-breakers
+        let baselineMetrics = {};
+        if (this.baselineManager) {
+            const cbStats = this.baselineManager.httpClient?.getCircuitBreakerStats();
+            if (cbStats) {
+                baselineMetrics = {
+                    baseline_fetch_success_total: cbStats.successfulRequests,
+                    baseline_fetch_error_total: cbStats.failedRequests,
+                    baseline_cb_open_total: cbStats.openCount,
+                    baseline_cb_state: cbStats.state
+                };
+            }
+        }
+        let t0Metrics = {};
+        if (this.noticeClient) {
+            const cbStats = this.noticeClient.getCircuitBreakerStats();
+            t0Metrics = {
+                t0_disabled_seconds_total: cbStats.state === 'OPEN' ? Math.floor((Date.now() - (cbStats.lastErrorTime || 0)) / 1000) : 0,
+                t0_fetch_error_total: cbStats.failedRequests,
+                t0_cb_open_total: cbStats.openCount,
+                t0_cb_state: cbStats.state
+            };
+        }
         return {
             ...baseMetrics,
             unified: unifiedMetrics,
             perp_catalog: perpCatalogMetrics,
+            baseline: baselineMetrics,
+            t0: t0Metrics,
             timestamp: new Date().toISOString()
         };
     }

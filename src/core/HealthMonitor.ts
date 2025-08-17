@@ -49,6 +49,16 @@ export interface HealthStatus {
     p95_order_to_ack: number;
     p95_notice_processing: number;
   };
+  // Nouvelles propriétés pour la robustesse
+  baseline_state?: 'READY' | 'CACHED' | 'DEGRADED';
+  baseline_cb_state?: string;
+  last_baseline_fetch_ms?: number | null;
+  errors_999_last_5m?: number;
+  t0_enabled?: boolean;
+  t0_cb_state?: string;
+  t2_enabled?: boolean;
+  ws_connected?: boolean;
+  leader_instance_id?: string;
 }
 
 export interface MetricsData {

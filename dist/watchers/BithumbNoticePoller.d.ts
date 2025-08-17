@@ -1,5 +1,6 @@
 import { TokenRegistry } from '../store/TokenRegistry';
 import { TelegramService } from '../notify/TelegramService';
+import { WatermarkStore } from '../store/WatermarkStore';
 export interface NoticePollerConfig {
     pollIntervalMs: number;
     maxNoticesPerPoll: number;
@@ -10,6 +11,7 @@ export declare class BithumbNoticePoller {
     private noticeClient;
     private tokenRegistry;
     private telegramService;
+    private watermarkStore;
     private config;
     private isRunning;
     private pollTimer;
@@ -19,9 +21,11 @@ export declare class BithumbNoticePoller {
     private totalPolls;
     private totalNotices;
     private totalListings;
+    private totalNewListings;
+    private totalSkippedWatermark;
     private lastErrorTime;
     private averageResponseTime;
-    constructor(tokenRegistry: TokenRegistry, telegramService: TelegramService, config: NoticePollerConfig);
+    constructor(tokenRegistry: TokenRegistry, telegramService: TelegramService, watermarkStore: WatermarkStore, config: NoticePollerConfig);
     /**
      * Démarre le polling ultra-compétitif
      */

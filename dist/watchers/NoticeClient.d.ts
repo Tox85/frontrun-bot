@@ -1,5 +1,7 @@
+import { WatermarkStore } from '../store/WatermarkStore';
+import { LogDeduper } from '../core/LogDeduper';
 export interface BithumbNotice {
-    id: number;
+    id?: number;
     title: string;
     categories: string[];
     pc_url: string;
@@ -22,12 +24,31 @@ export declare class NoticeClient {
     private readonly baseUrl;
     private readonly keywords;
     private readonly rateLimit;
-    constructor();
+    private watermarkStore;
+    private logDeduper;
+    private httpClient;
+    private pollCount;
+    private _isEnabled;
+    private pollTimer;
+    private retryTimer;
     /**
-     * Récupère les dernières notices depuis l'API officielle Bithumb
-     * UNIQUEMENT l'API publique - pas de scraping du site web
+     * Méthode publique pour accéder au logDeduper (pour flush lors de l'arrêt)
      */
-    fetchLatestNotices(count?: number): Promise<BithumbNotice[]>;
+    getLogDeduper(): LogDeduper;
+    constructor(watermarkStore: WatermarkStore, config?: {
+        logDedupWindowMs?: number;
+        logDedupMaxPerWindow?: number;
+        maxNoticeAgeMin?: number;
+    });
+    /**
+     * Active T0 seulement si la baseline est prête
+     */
+    enable(): void;
+    /**
+     * Désactive T0 et programme un retry
+     */
+    disable(reason: string): void;
+    private scheduleRetry;
     /**
      * Filtre les notices pour détecter les nouveaux listings
      */
@@ -54,10 +75,29 @@ export declare class NoticeClient {
     calculatePriority(notice: BithumbNotice): 'high' | 'medium' | 'low';
     /**
      * Traite une notice et la convertit en format interne
+     * NE LOG PLUS "Notice processed" ici - sera fait après déduplication
      */
     processNotice(notice: BithumbNotice): ProcessedNotice | null;
     /**
-     * Récupère et traite les dernières notices
+     * Récupère les dernières notices depuis l'API officielle Bithumb
+     * UNIQUEMENT l'API publique - pas de scraping du site web
+     */
+    fetchLatestNotices(count?: number): Promise<BithumbNotice[]>;
+    /**
+     * Démarrer le polling avec jitter
+     */
+    startPolling(callback: (listings: ProcessedNotice[]) => void): void;
+    private scheduleNextPoll;
+    private pollWithCallback;
+    private getPollStats;
+    /**
+     * Arrêter le polling
+     */
+    stopPolling(): void;
+    /**
+     * Récupère et traite les dernières notices avec watermark et déduplication
      */
     getLatestListings(count?: number): Promise<ProcessedNotice[]>;
+    getCircuitBreakerStats(): import("../core/CircuitBreaker").CircuitBreakerStats;
+    isEnabled(): boolean;
 }

@@ -39,7 +39,7 @@ export declare class BithumbWSWatcher extends EventEmitter {
     private performanceMetrics;
     constructor(db: Database, eventStore: EventStore, config?: Partial<WSConfig>);
     start(): Promise<void>;
-    stop(): void;
+    stop(): Promise<void>;
     private connect;
     private setupWebSocket;
     private subscribeToKRWTickers;

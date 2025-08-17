@@ -25,7 +25,16 @@
     "fix-perp-catalog": "ts-node src/bin/fix-perp-catalog.ts",
     "verify:fixes": "ts-node src/bin/verify-fixes.ts",
     "test:dedup-fix": "ts-node src/bin/test-dedup-fix.ts",
-    "verify:deployment": "ts-node src/bin/verify-deployment.ts"
+    "verify:deployment": "ts-node src/bin/verify-deployment.ts",
+    "validate:runtime": "ts-node src/bin/validate-runtime.ts",
+    "test:dashboard": "ts-node src/bin/test-dashboard.ts",
+    "test:telegram": "ts-node src/bin/test-telegram-alerts.ts",
+    "test:validation": "ts-node src/bin/test-data-validation.ts",
+    "test:load:advanced": "ts-node src/bin/test-load-advanced.ts",
+    "deploy:prod": "ts-node src/bin/deploy-production.ts",
+    "deploy:docker": "docker-compose -f docker-compose.prod.yml up -d --build",
+    "deploy:docker:stop": "docker-compose -f docker-compose.prod.yml down",
+    "deploy:docker:logs": "docker-compose -f docker-compose.prod.yml logs -f"
   },
   "keywords": [
     "crypto",

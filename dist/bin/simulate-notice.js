@@ -6,6 +6,7 @@ const NoticeClient_1 = require("../watchers/NoticeClient");
 const TelegramService_1 = require("../notify/TelegramService");
 const BaselineManager_1 = require("../core/BaselineManager");
 const Migrations_1 = require("../store/Migrations");
+const WatermarkStore_1 = require("../store/WatermarkStore");
 async function simulateNotice() {
     console.log('🚀 Simulation du NoticeClient...');
     try {
@@ -24,8 +25,11 @@ async function simulateNotice() {
             botToken: 'mock-token',
             chatId: 'mock-chat'
         });
+        // Créer le WatermarkStore
+        const watermarkStore = new WatermarkStore_1.WatermarkStore(db);
+        await watermarkStore.initializeAtBoot('bithumb.notice');
         // Créer le NoticeClient
-        const noticeClient = new NoticeClient_1.NoticeClient();
+        const noticeClient = new NoticeClient_1.NoticeClient(watermarkStore);
         console.log('✅ NoticeClient créé avec succès');
         // Simuler une notice
         const mockNotice = {

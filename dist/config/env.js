@@ -103,6 +103,22 @@ exports.CONFIG = {
     BINANCE_TIMEOUT_MS: (0, exports.toNumber)(process.env.BINANCE_TIMEOUT_MS, 20000), // Timeout Binance à 20s
     BINANCE_BATCH_SIZE: (0, exports.toNumber)(process.env.BINANCE_BATCH_SIZE, 50), // Taille des lots pour l'indexation
     API_RATE_LIMIT_MS: (0, exports.toNumber)(process.env.API_RATE_LIMIT_MS, 100), // Délai entre appels API (100ms)
+    // Baseline REST circuit-breaker
+    BL_CB_ERRORS_BEFORE_OPEN: (0, exports.toNumber)(process.env.BL_CB_ERRORS_BEFORE_OPEN, 3),
+    BL_CB_OPEN_MS: (0, exports.toNumber)(process.env.BL_CB_OPEN_MS, 60000),
+    BL_HTTP_TIMEOUT_MS: (0, exports.toNumber)(process.env.BL_HTTP_TIMEOUT_MS, 1500),
+    BL_HTTP_RETRIES: (0, exports.toNumber)(process.env.BL_HTTP_RETRIES, 2),
+    // T0 (NoticeClient)
+    T0_HTTP_TIMEOUT_MS: (0, exports.toNumber)(process.env.T0_HTTP_TIMEOUT_MS, 1200),
+    T0_HTTP_RETRIES: (0, exports.toNumber)(process.env.T0_HTTP_RETRIES, 1),
+    POLL_JITTER_PCT: (0, exports.toNumber)(process.env.POLL_JITTER_PCT, 0.15),
+    // Backoffs
+    RETRY_BASE_MS: (0, exports.toNumber)(process.env.RETRY_BASE_MS, 30000),
+    RETRY_MAX_MS: (0, exports.toNumber)(process.env.RETRY_MAX_MS, 600000),
+    // Health/log
+    LOG_DEDUP_WINDOW_MS: (0, exports.toNumber)(process.env.LOG_DEDUP_WINDOW_MS, 60000),
+    LOG_DEDUP_MAX_PER_WINDOW: (0, exports.toNumber)(process.env.LOG_DEDUP_MAX_PER_WINDOW, 2),
+    MAX_NOTICE_AGE_MIN: (0, exports.toNumber)(process.env.MAX_NOTICE_AGE_MIN, 180),
 };
 // Export direct pour ENVZ_ENABLED
 exports.ENVZ_ENABLED = exports.CONFIG.ENVZ_ENABLED;

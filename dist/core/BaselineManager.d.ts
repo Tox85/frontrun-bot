@@ -1,4 +1,5 @@
 import { Database } from 'sqlite3';
+export type BaselineState = 'READY' | 'CACHED' | 'DEGRADED';
 export interface BithumbKRToken {
     symbol: string;
     base: string;
@@ -16,12 +17,21 @@ export interface BaselineManagerStats {
 export declare class BaselineManager {
     private db;
     private rateLimiter;
+    private httpClient;
     private isInitialized;
+    private state;
     private baselineUrl;
     private readonly stableCoins;
+    private retryTimer;
+    private lastBaselineFetchMs;
+    private errors999Last5m;
+    private errorCounters;
     constructor(db: Database);
     initialize(): Promise<void>;
     private fetchAndStoreBaseline;
+    private loadExistingBaseline;
+    private scheduleRetry;
+    private recordError;
     private storeBaselineKR;
     private parseBaselineResponse;
     isTokenInBaseline(base: string): Promise<boolean>;
@@ -38,6 +48,10 @@ export declare class BaselineManager {
         tokenCount: number;
         lastUpdated: string | null;
         sanity: boolean;
+        state: BaselineState;
+        circuitBreakerState: string;
+        lastBaselineFetchMs: number | null;
+        errors999Last5m: number;
     }>;
     stop(): Promise<void>;
     getStatus(): {
@@ -45,5 +59,9 @@ export declare class BaselineManager {
         baselineUrl: string;
         rateLimiterState: any;
         isBootOnly: boolean;
+        state: BaselineState;
+        circuitBreakerStats: any;
     };
+    getState(): BaselineState;
+    canActivateT0(): boolean;
 }

@@ -57,14 +57,14 @@ class BithumbWSWatcher extends events_1.EventEmitter {
         this.isStopped = false;
         await this.connect();
     }
-    stop() {
+    async stop() {
         if (!this.isRunning)
             return;
         console.log('🛑 Arrêt du BithumbWSWatcher...');
         this.isStopped = true;
         this.isRunning = false;
         this.cleanupTimers();
-        this.disconnect();
+        await this.disconnect();
         this.stopHeartbeat();
     }
     async connect() {
@@ -368,9 +368,14 @@ class BithumbWSWatcher extends events_1.EventEmitter {
             }
         }, delay);
     }
-    disconnect() {
+    async disconnect() {
         if (this.ws) {
-            this.ws.close();
+            // Vérifier l'état avant de fermer
+            if (this.ws.readyState === ws_1.WebSocket.OPEN || this.ws.readyState === ws_1.WebSocket.CONNECTING) {
+                this.ws.close(1000, 'Graceful shutdown');
+            }
+            // Retirer tous les listeners après fermeture
+            this.ws.removeAllListeners();
             this.ws = null;
         }
     }

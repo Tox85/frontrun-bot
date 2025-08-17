@@ -94,7 +94,7 @@ export class BithumbWSWatcher extends EventEmitter {
     await this.connect();
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (!this.isRunning) return;
 
     console.log('🛑 Arrêt du BithumbWSWatcher...');
@@ -102,7 +102,7 @@ export class BithumbWSWatcher extends EventEmitter {
     this.isRunning = false;
 
     this.cleanupTimers();
-    this.disconnect();
+    await this.disconnect();
     this.stopHeartbeat();
   }
 
@@ -472,9 +472,15 @@ export class BithumbWSWatcher extends EventEmitter {
     }, delay);
   }
 
-  private disconnect(): void {
+  private async disconnect(): Promise<void> {
     if (this.ws) {
-      this.ws.close();
+      // Vérifier l'état avant de fermer
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close(1000, 'Graceful shutdown');
+      }
+      
+      // Retirer tous les listeners après fermeture
+      this.ws.removeAllListeners();
       this.ws = null;
     }
   }

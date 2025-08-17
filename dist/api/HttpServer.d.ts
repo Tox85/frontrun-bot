@@ -28,6 +28,7 @@ export declare class HttpServer {
     private tradeExecutor;
     private healthMonitor;
     private eventStore;
+    private dashboardController;
     private unifiedMetrics;
     constructor(db: Database, baselineManager: BaselineManager | null, perpCatalog: PerpCatalog | null, singletonGuard: SingletonGuard, noticeClient: (NoticeClient | null) | undefined, wsWatcher: (BithumbWSWatcher | null) | undefined, telegramService: TelegramService, tradeExecutor: (TradeExecutor | null) | undefined, healthMonitor: (HealthMonitor | null) | undefined, eventStore: EventStore, config?: Partial<HttpServerConfig>);
     private setupMiddleware;

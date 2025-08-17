@@ -64,6 +64,18 @@ export declare const CONFIG: {
     readonly BINANCE_TIMEOUT_MS: number;
     readonly BINANCE_BATCH_SIZE: number;
     readonly API_RATE_LIMIT_MS: number;
+    readonly BL_CB_ERRORS_BEFORE_OPEN: number;
+    readonly BL_CB_OPEN_MS: number;
+    readonly BL_HTTP_TIMEOUT_MS: number;
+    readonly BL_HTTP_RETRIES: number;
+    readonly T0_HTTP_TIMEOUT_MS: number;
+    readonly T0_HTTP_RETRIES: number;
+    readonly POLL_JITTER_PCT: number;
+    readonly RETRY_BASE_MS: number;
+    readonly RETRY_MAX_MS: number;
+    readonly LOG_DEDUP_WINDOW_MS: number;
+    readonly LOG_DEDUP_MAX_PER_WINDOW: number;
+    readonly MAX_NOTICE_AGE_MIN: number;
 };
 export declare const ENVZ_ENABLED: boolean;
 export declare function validateConfig(): {

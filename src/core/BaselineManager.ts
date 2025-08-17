@@ -1,5 +1,9 @@
 import { Database } from 'sqlite3';
 import { RateLimiter } from './RateLimiter';
+import { HttpClient } from './HttpClient';
+import { CONFIG } from '../config/env';
+
+export type BaselineState = 'READY' | 'CACHED' | 'DEGRADED';
 
 export interface BithumbKRToken {
   symbol: string;
@@ -20,13 +24,34 @@ export interface BaselineManagerStats {
 export class BaselineManager {
   private db: Database;
   private rateLimiter: RateLimiter;
+  private httpClient: HttpClient;
   private isInitialized: boolean = false;
+  private state: BaselineState = 'DEGRADED';
   private baselineUrl = 'https://api.bithumb.com/public/ticker/ALL_KRW';
   private readonly stableCoins = ['USDT', 'USDC', 'DAI', 'TUSD', 'BUSD', 'FRAX'];
+  private retryTimer: NodeJS.Timeout | null = null;
+  private lastBaselineFetchMs: number | null = null;
+  private errors999Last5m: number = 0;
+  private errorCounters: Map<number, number> = new Map();
 
   constructor(db: Database) {
     this.db = db;
     this.rateLimiter = new RateLimiter();
+    
+    // Configuration du circuit-breaker pour la baseline
+    this.httpClient = new HttpClient('BaselineManager', {
+      timeoutMs: CONFIG.BL_HTTP_TIMEOUT_MS,
+      maxRetries: CONFIG.BL_HTTP_RETRIES,
+      baseRetryDelayMs: 250,
+      maxRetryDelayMs: 500,
+      jitterPercent: 20
+    });
+
+    // Nettoyer les compteurs d'erreurs toutes les 5 minutes
+    setInterval(() => {
+      this.errors999Last5m = 0;
+      this.errorCounters.clear();
+    }, 5 * 60 * 1000);
   }
 
   async initialize(): Promise<void> {
@@ -35,22 +60,34 @@ export class BaselineManager {
     try {
       console.log('🔄 Initialisation de la baseline KR Bithumb (BOOT ONLY)...');
       
-      const existingBaseline = await this.getBaselineKRStats();
-      
-      if (existingBaseline && existingBaseline.total > 0) {
-        console.log(`✅ Baseline KR existante trouvée: ${existingBaseline.total} tokens`);
-        this.isInitialized = true;
-        return;
+      // Essayer d'abord de charger depuis l'API REST
+      try {
+        await this.fetchAndStoreBaseline();
+        this.state = 'READY';
+        console.log('✅ Baseline KR initialisée avec succès depuis l\'API REST (BOOT ONLY)');
+      } catch (error) {
+        console.warn('[BASELINE] REST failed -> try local cache');
+        
+        // Fallback au cache local
+        const ok = await this.loadExistingBaseline();
+        if (!ok) {
+          console.error('[BASELINE] No local baseline -> degrade to WS-only (T2), schedule retry');
+          this.state = 'DEGRADED';
+          this.scheduleRetry();
+        } else {
+          this.state = 'CACHED';
+          console.log('✅ Baseline KR chargée depuis le cache local');
+          // Continuer boot normal (T2 active, T0 sera activé quand REST redevient OK)
+        }
       }
       
-      await this.fetchAndStoreBaseline();
-      
       this.isInitialized = true;
-      console.log('✅ Baseline KR initialisée avec succès (BOOT ONLY)');
       
     } catch (error) {
       console.error('❌ Erreur lors de l\'initialisation de la baseline KR:', error);
-      throw error;
+      this.state = 'DEGRADED';
+      this.scheduleRetry();
+      this.isInitialized = true; // Ne pas bloquer le boot
     }
   }
 
@@ -60,23 +97,19 @@ export class BaselineManager {
       
       await this.rateLimiter.waitForAvailability('BITHUMB');
       
-      const response = await fetch(this.baselineUrl, {
-        method: 'GET',
-        signal: AbortSignal.timeout(30000)
-      });
+      const startTime = Date.now();
+      const response = await this.httpClient.get(this.baselineUrl);
+      this.lastBaselineFetchMs = Date.now() - startTime;
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
       this.rateLimiter.recordSuccess('BITHUMB');
       
-      if (data.status !== '0000') {
-        throw new Error(`Erreur API Bithumb: ${data.status}`);
+      const responseData = response.data as any;
+      if (responseData.status !== '0000') {
+        this.recordError(999); // Code d'erreur Bithumb
+        throw new Error(`Erreur API Bithumb: ${responseData.status}`);
       }
       
-      const tokens = this.parseBaselineResponse(data.data);
+      const tokens = this.parseBaselineResponse(responseData.data);
       
       if (tokens.length === 0) {
         throw new Error('Aucun token trouvé dans la réponse Bithumb');
@@ -86,9 +119,64 @@ export class BaselineManager {
       
       console.log(`📊 Baseline KR stockée: ${tokens.length} tokens (BOOT ONLY)`);
       
+      // Si on était en mode dégradé, passer à READY et réactiver T0
+      if (this.state === 'DEGRADED' || this.state === 'CACHED') {
+        this.state = 'READY';
+        console.log('[BASELINE] State changed to READY - T0 can be activated');
+      }
+      
     } catch (error) {
       this.rateLimiter.recordFailure('BITHUMB');
+      
+      // Enregistrer l'erreur pour les métriques
+      if (error instanceof Error && error.message.includes('999')) {
+        this.recordError(999);
+      } else if (error instanceof Error && error.message.includes('timeout')) {
+        this.recordError(408);
+      } else {
+        this.recordError(500);
+      }
+      
       throw error;
+    }
+  }
+
+  private async loadExistingBaseline(): Promise<boolean> {
+    try {
+      const stats = await this.getBaselineKRStats();
+      return stats !== null && stats.total > 0;
+    } catch (error) {
+      console.error('[BASELINE] Error loading existing baseline:', error);
+      return false;
+    }
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+    }
+
+    const delays = [30000, 60000, 120000, 300000, 600000]; // 30s, 1m, 2m, 5m, 10m
+    const delay = delays[Math.min(this.errorCounters.get(999) || 0, delays.length - 1)];
+    
+    console.log(`[BASELINE] Scheduling retry in ${delay}ms`);
+    
+    this.retryTimer = setTimeout(async () => {
+      try {
+        await this.fetchAndStoreBaseline();
+      } catch (error) {
+        console.warn('[BASELINE] Retry failed, will retry again');
+        this.scheduleRetry();
+      }
+    }, delay);
+  }
+
+  private recordError(code: number): void {
+    const current = this.errorCounters.get(code) || 0;
+    this.errorCounters.set(code, current + 1);
+    
+    if (code === 999) {
+      this.errors999Last5m++;
     }
   }
 
@@ -209,16 +297,25 @@ export class BaselineManager {
     tokenCount: number;
     lastUpdated: string | null;
     sanity: boolean;
+    state: BaselineState;
+    circuitBreakerState: string;
+    lastBaselineFetchMs: number | null;
+    errors999Last5m: number;
   }> {
     try {
       const stats = await this.getBaselineKRStats();
+      const cbStats = this.httpClient.getCircuitBreakerStats();
     
       return {
         isInitialized: this.isInitialized,
         baselineExists: stats !== null && stats.total > 0,
         tokenCount: stats?.total || 0,
         lastUpdated: stats?.lastUpdated || null,
-        sanity: stats?.sanity || false
+        sanity: stats?.sanity || false,
+        state: this.state,
+        circuitBreakerState: cbStats.state,
+        lastBaselineFetchMs: this.lastBaselineFetchMs,
+        errors999Last5m: this.errors999Last5m
       };
     } catch (error) {
       return {
@@ -226,13 +323,22 @@ export class BaselineManager {
         baselineExists: false,
         tokenCount: 0,
         lastUpdated: null,
-        sanity: false
+        sanity: false,
+        state: this.state,
+        circuitBreakerState: 'UNKNOWN',
+        lastBaselineFetchMs: this.lastBaselineFetchMs,
+        errors999Last5m: this.errors999Last5m
       };
     }
   }
 
   async stop(): Promise<void> {
     this.isInitialized = false;
+    
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
   }
 
   getStatus(): {
@@ -240,12 +346,24 @@ export class BaselineManager {
     baselineUrl: string;
     rateLimiterState: any;
     isBootOnly: boolean;
+    state: BaselineState;
+    circuitBreakerStats: any;
   } {
     return {
       isInitialized: this.isInitialized,
       baselineUrl: this.baselineUrl,
       rateLimiterState: this.rateLimiter.getStateSnapshot('BITHUMB'),
-      isBootOnly: true
+      isBootOnly: true,
+      state: this.state,
+      circuitBreakerStats: this.httpClient.getCircuitBreakerStats()
     };
+  }
+
+  getState(): BaselineState {
+    return this.state;
+  }
+
+  canActivateT0(): boolean {
+    return this.state === 'READY' || this.state === 'CACHED';
   }
 }

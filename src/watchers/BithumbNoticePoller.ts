@@ -1,6 +1,7 @@
 import { NoticeClient, ProcessedNotice } from './NoticeClient';
 import { TokenRegistry } from '../store/TokenRegistry';
 import { TelegramService } from '../notify/TelegramService';
+import { WatermarkStore } from '../store/WatermarkStore';
 
 export interface NoticePollerConfig {
   pollIntervalMs: number;
@@ -13,6 +14,7 @@ export class BithumbNoticePoller {
   private noticeClient: NoticeClient;
   private tokenRegistry: TokenRegistry;
   private telegramService: TelegramService;
+  private watermarkStore: WatermarkStore;
   private config: NoticePollerConfig;
   
   private isRunning: boolean = false;
@@ -25,20 +27,28 @@ export class BithumbNoticePoller {
   private totalPolls: number = 0;
   private totalNotices: number = 0;
   private totalListings: number = 0;
+  private totalNewListings: number = 0;
+  private totalSkippedWatermark: number = 0;
   private lastErrorTime: number = 0;
   private averageResponseTime: number = 0;
 
   constructor(
     tokenRegistry: TokenRegistry,
     telegramService: TelegramService,
+    watermarkStore: WatermarkStore,
     config: NoticePollerConfig
   ) {
-    this.noticeClient = new NoticeClient();
+    this.watermarkStore = watermarkStore;
+    this.noticeClient = new NoticeClient(watermarkStore, {
+      logDedupWindowMs: 60000, // 1 min par défaut
+      logDedupMaxPerWindow: 2, // 2 logs max par fenêtre
+      maxNoticeAgeMin: 180 // 3h par défaut
+    });
     this.tokenRegistry = tokenRegistry;
     this.telegramService = telegramService;
     this.config = config;
     
-    console.log('🚀 BithumbNoticePoller initialized with ultra-competitive T0 detection');
+    console.log('🚀 BithumbNoticePoller initialized with ultra-competitive T0 detection + watermark');
   }
 
   /**

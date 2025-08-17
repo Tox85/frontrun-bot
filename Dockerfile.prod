@@ -1,0 +1,57 @@
+# Multi-stage build pour production
+FROM node:20-alpine AS builder
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier les fichiers de dépendances
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Installer les dépendances
+RUN npm ci --only=production && npm cache clean --force
+
+# Copier le code source
+COPY src/ ./src/
+COPY migrations/ ./migrations/
+
+# Build de l'application
+RUN npm run build
+
+# Stage de production
+FROM node:20-alpine AS production
+
+# Créer un utilisateur non-root
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S bot -u 1001
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier les dépendances de production
+COPY --from=builder --chown=bot:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=bot:nodejs /app/dist ./dist
+COPY --from=builder --chown=bot:nodejs /app/migrations ./migrations
+COPY --from=builder --chown=bot:nodejs /app/package*.json ./
+
+# Créer les dossiers nécessaires
+RUN mkdir -p data logs && \
+    chown -R bot:nodejs data logs
+
+# Variables d'environnement
+ENV NODE_ENV=production
+ENV PORT=3001
+ENV HOST=0.0.0.0
+
+# Exposer le port
+EXPOSE 3001
+
+# Changer vers l'utilisateur non-root
+USER bot
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+# Commande de démarrage
+CMD ["node", "dist/main.js"]

@@ -5,6 +5,7 @@ import { NoticeClient } from '../watchers/NoticeClient';
 import { TelegramService } from '../notify/TelegramService';
 import { BaselineManager } from '../core/BaselineManager';
 import { MigrationRunner } from '../store/Migrations';
+import { WatermarkStore } from '../store/WatermarkStore';
 
 async function simulateNotice() {
   console.log('🚀 Simulation du NoticeClient...');
@@ -29,8 +30,12 @@ async function simulateNotice() {
       chatId: 'mock-chat'
     });
     
+    // Créer le WatermarkStore
+    const watermarkStore = new WatermarkStore(db);
+    await watermarkStore.initializeAtBoot('bithumb.notice');
+    
     // Créer le NoticeClient
-    const noticeClient = new NoticeClient();
+    const noticeClient = new NoticeClient(watermarkStore);
     console.log('✅ NoticeClient créé avec succès');
     
     // Simuler une notice

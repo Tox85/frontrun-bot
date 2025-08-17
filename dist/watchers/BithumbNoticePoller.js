@@ -6,6 +6,7 @@ class BithumbNoticePoller {
     noticeClient;
     tokenRegistry;
     telegramService;
+    watermarkStore;
     config;
     isRunning = false;
     pollTimer = null;
@@ -16,14 +17,21 @@ class BithumbNoticePoller {
     totalPolls = 0;
     totalNotices = 0;
     totalListings = 0;
+    totalNewListings = 0;
+    totalSkippedWatermark = 0;
     lastErrorTime = 0;
     averageResponseTime = 0;
-    constructor(tokenRegistry, telegramService, config) {
-        this.noticeClient = new NoticeClient_1.NoticeClient();
+    constructor(tokenRegistry, telegramService, watermarkStore, config) {
+        this.watermarkStore = watermarkStore;
+        this.noticeClient = new NoticeClient_1.NoticeClient(watermarkStore, {
+            logDedupWindowMs: 60000, // 1 min par défaut
+            logDedupMaxPerWindow: 2, // 2 logs max par fenêtre
+            maxNoticeAgeMin: 180 // 3h par défaut
+        });
         this.tokenRegistry = tokenRegistry;
         this.telegramService = telegramService;
         this.config = config;
-        console.log('🚀 BithumbNoticePoller initialized with ultra-competitive T0 detection');
+        console.log('🚀 BithumbNoticePoller initialized with ultra-competitive T0 detection + watermark');
     }
     /**
      * Démarre le polling ultra-compétitif
