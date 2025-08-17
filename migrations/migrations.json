@@ -2,55 +2,43 @@
   {
     "version": "001",
     "description": "Initial database schema",
-    "filename": "001_initial_schema.sql",
+    "filename": "001_init.sql",
     "applied_at": null
   },
   {
     "version": "002",
-    "description": "Add baseline table",
-    "filename": "002_add_baseline_table.sql",
+    "description": "Add pragma settings",
+    "filename": "002_pragma.sql",
     "applied_at": null
   },
   {
     "version": "003",
-    "description": "Add events table",
-    "filename": "003_add_events_table.sql",
-    "applied_at": null
-  },
-  {
-    "version": "004",
-    "description": "Add perp catalog table",
-    "filename": "004_add_perp_catalog_table.sql",
+    "description": "Final schema setup",
+    "filename": "003_final_schema.sql",
     "applied_at": null
   },
   {
     "version": "005",
-    "description": "Add trades table",
-    "filename": "005_add_trades_table.sql",
+    "description": "Fix processed events",
+    "filename": "005_fix_processed_events.sql",
     "applied_at": null
   },
   {
     "version": "006",
-    "description": "Add exits table",
-    "filename": "006_add_exits_table.sql",
+    "description": "Recreate processed events",
+    "filename": "006_recreate_processed_events.sql",
     "applied_at": null
   },
   {
     "version": "007",
-    "description": "Add singleton guard table",
-    "filename": "007_add_singleton_guard_table.sql",
+    "description": "Unified eventid schema",
+    "filename": "007_unified_eventid_schema.sql",
     "applied_at": null
   },
   {
     "version": "008",
-    "description": "Add processed events table",
-    "filename": "008_add_processed_events_table.sql",
-    "applied_at": null
-  },
-  {
-    "version": "009",
-    "description": "Add performance metrics table",
-    "filename": "009_add_performance_metrics_table.sql",
+    "description": "Fix instance lock schema",
+    "filename": "008_fix_instance_lock_schema.sql",
     "applied_at": null
   },
   {
