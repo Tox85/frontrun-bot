@@ -34,7 +34,8 @@
     "deploy:prod": "ts-node src/bin/deploy-production.ts",
     "deploy:docker": "docker-compose -f docker-compose.prod.yml up -d --build",
     "deploy:docker:stop": "docker-compose -f docker-compose.prod.yml down",
-    "deploy:docker:logs": "docker-compose -f docker-compose.prod.yml logs -f"
+    "deploy:docker:logs": "docker-compose -f docker-compose.prod.yml logs -f",
+    "fix:railway": "ts-node src/bin/fix-railway-deployment.ts"
   },
   "keywords": [
     "crypto",

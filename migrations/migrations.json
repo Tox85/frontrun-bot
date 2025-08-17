@@ -1,0 +1,68 @@
+[
+  {
+    "version": "001",
+    "description": "Initial database schema",
+    "filename": "001_initial_schema.sql",
+    "applied_at": null
+  },
+  {
+    "version": "002",
+    "description": "Add baseline table",
+    "filename": "002_add_baseline_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "003",
+    "description": "Add events table",
+    "filename": "003_add_events_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "004",
+    "description": "Add perp catalog table",
+    "filename": "004_add_perp_catalog_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "005",
+    "description": "Add trades table",
+    "filename": "005_add_trades_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "006",
+    "description": "Add exits table",
+    "filename": "006_add_exits_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "007",
+    "description": "Add singleton guard table",
+    "filename": "007_add_singleton_guard_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "008",
+    "description": "Add processed events table",
+    "filename": "008_add_processed_events_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "009",
+    "description": "Add performance metrics table",
+    "filename": "009_add_performance_metrics_table.sql",
+    "applied_at": null
+  },
+  {
+    "version": "010",
+    "description": "Perp catalog upsert",
+    "filename": "010_perp_catalog_upsert.sql",
+    "applied_at": null
+  },
+  {
+    "version": "011",
+    "description": "Create watermarks table",
+    "filename": "011_create_watermarks_table.sql",
+    "applied_at": null
+  }
+]
