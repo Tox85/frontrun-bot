@@ -1,4 +1,4 @@
--- Migration 008: PerpCatalog UPSERT + Anti-overlap + Dédup par base
+-- Migration 010: PerpCatalog UPSERT + Anti-overlap + Dédup par base
 -- Appliquée le: 2025-01-15
 -- Objectif: Résoudre les erreurs SQLITE_CONSTRAINT et améliorer la robustesse
 
@@ -29,7 +29,7 @@ CREATE INDEX idx_perp_catalog_last_seen ON perp_catalog(last_seen_at);
 -- Index unique sur (exchange, base) - redondant avec PRIMARY KEY mais explicite
 CREATE UNIQUE INDEX unq_perp_catalog_exchange_base ON perp_catalog(exchange, base);
 
--- Restaurer les données avec mapping des anciennes colonnes
+-- Restaurer les données avec mapping des anciennes colonnes (sans leverage_max)
 INSERT INTO perp_catalog (exchange, base, quote, symbol, leverage_max, last_seen_at, updated_at_utc)
 SELECT 
   exchange,
@@ -42,7 +42,7 @@ SELECT
     ELSE 'USDT'
   END as quote,
   symbol,
-  COALESCE(leverage_max, 100) as leverage_max,
+  100 as leverage_max,  -- Valeur par défaut pour les anciennes données
   COALESCE(updated_at_utc, datetime('now')) as last_seen_at,
   datetime('now') as updated_at_utc
 FROM perp_catalog_backup;

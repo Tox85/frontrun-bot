@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS perp_catalog (
   exchange TEXT NOT NULL,             -- 'BYBIT' | 'HYPERLIQUID' | 'BINANCE'
   base TEXT NOT NULL,
   symbol TEXT NOT NULL,
+  leverage_max REAL DEFAULT 100,      -- Ajouté pour cohérence avec les migrations suivantes
   updated_at_utc TEXT NOT NULL,
   PRIMARY KEY (exchange, base)
 );
