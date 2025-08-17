@@ -21,6 +21,3 @@ CREATE INDEX IF NOT EXISTS idx_watermarks_timestamp ON watermarks(timestamp);
 INSERT OR IGNORE INTO watermarks (source, base, watermark, timestamp) VALUES
     ('bithumb.notice', 'KRW', '0', 0),
     ('bithumb.websocket', 'KRW', '0', 0);
-
--- Mise à jour du timestamp
-UPDATE migrations SET applied_at = CURRENT_TIMESTAMP WHERE version = '011';

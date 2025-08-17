@@ -64,5 +64,11 @@
     "description": "Create watermarks table",
     "filename": "011_create_watermarks_table.sql",
     "applied_at": null
+  },
+  {
+    "version": "012",
+    "description": "Fix migration system",
+    "filename": "012_fix_migration_system.sql",
+    "applied_at": null
   }
 ]
