@@ -19,11 +19,9 @@ async function emergencyRailwayFix() {
     await new Promise<void>((resolve, reject) => {
       db.run(`
         CREATE TABLE IF NOT EXISTS _migrations (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          version TEXT NOT NULL UNIQUE,
-          description TEXT,
-          filename TEXT,
-          applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at_utc TEXT NOT NULL
         )
       `, (err) => {
         if (err) reject(err);
@@ -121,10 +119,10 @@ async function emergencyRailwayFix() {
     // 8. Vérification finale
     console.log('✅ Vérification finale...');
     await new Promise<void>((resolve, reject) => {
-      db.all('SELECT version, description FROM _migrations ORDER BY version', (err, rows) => {
+      db.all('SELECT id, name FROM _migrations ORDER BY id', (err, rows) => {
         if (err) reject(err);
         else {
-          console.log(`✅ ${rows.length} migrations enregistrées:`, rows.map(r => r.version));
+          console.log(`✅ ${rows.length} migrations enregistrées:`, rows.map((r: any) => r.id));
           resolve();
         }
       });
