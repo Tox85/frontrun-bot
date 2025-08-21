@@ -14,19 +14,17 @@ async function fixRailwayDeployment() {
     console.log('🗄️  Ouverture de la base de données...');
     const db = new Database(dbPath);
 
-    // 2. Créer la table watermarks si elle n'existe pas
+    // 2. Créer la table watermarks si elle n'existe pas (schéma corrigé)
     console.log('📋 Création de la table watermarks...');
     await new Promise<void>((resolve, reject) => {
       db.run(`
         CREATE TABLE IF NOT EXISTS watermarks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           source TEXT NOT NULL,
-          base TEXT NOT NULL,
-          watermark TEXT NOT NULL,
-          timestamp INTEGER NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(source, base)
+          last_published_at INTEGER NOT NULL DEFAULT 0,
+          last_notice_uid TEXT,
+          updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          UNIQUE(source)
         )
       `, (err) => {
         if (err) reject(err);
@@ -34,29 +32,29 @@ async function fixRailwayDeployment() {
       });
     });
 
-    // 3. Créer les index
+    // 3. Créer les index (schéma corrigé)
     console.log('🔍 Création des index...');
     await new Promise<void>((resolve, reject) => {
-      db.run('CREATE INDEX IF NOT EXISTS idx_watermarks_source_base ON watermarks(source, base)', (err) => {
+      db.run('CREATE INDEX IF NOT EXISTS idx_watermarks_source ON watermarks(source)', (err) => {
         if (err) reject(err);
         else resolve();
       });
     });
 
     await new Promise<void>((resolve, reject) => {
-      db.run('CREATE INDEX IF NOT EXISTS idx_watermarks_timestamp ON watermarks(timestamp)', (err) => {
+      db.run('CREATE INDEX IF NOT EXISTS idx_watermarks_last_published ON watermarks(last_published_at)', (err) => {
         if (err) reject(err);
         else resolve();
       });
     });
 
-    // 4. Insérer les watermarks par défaut
+    // 4. Insérer les watermarks par défaut (schéma corrigé)
     console.log('💧 Insertion des watermarks par défaut...');
     await new Promise<void>((resolve, reject) => {
       db.run(`
-        INSERT OR IGNORE INTO watermarks (source, base, watermark, timestamp) VALUES
-        ('bithumb.notice', 'KRW', '0', 0),
-        ('bithumb.websocket', 'KRW', '0', 0)
+        INSERT OR IGNORE INTO watermarks (source, last_published_at, last_notice_uid, updated_at) VALUES
+        ('bithumb.notice', 0, NULL, strftime('%s', 'now')),
+        ('bithumb.websocket', 0, NULL, strftime('%s', 'now'))
       `, (err) => {
         if (err) reject(err);
         else resolve();
@@ -98,21 +96,9 @@ async function fixRailwayDeployment() {
 
   } catch (error) {
     console.error('❌ Erreur lors de la correction:', error);
-    logger.error('Correction Railway échouée', error as Error);
     process.exit(1);
   }
 }
-
-// Gestion des erreurs
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  process.exit(1);
-});
 
 // Lancer la correction
 fixRailwayDeployment().catch(console.error);
