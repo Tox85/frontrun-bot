@@ -63,6 +63,16 @@ export class HttpClient {
     );
   }
 
+  /**
+   * Récupère une réponse en tant qu'ArrayBuffer pour le décodage binaire
+   */
+  async getArrayBuffer(url: string): Promise<{ buf: ArrayBuffer; headers: Headers }> {
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+    const buf = await res.arrayBuffer();
+    return { buf, headers: res.headers };
+  }
+
   private async executeWithRetry<T>(
     operation: () => Promise<HttpClientResponse<T>>
   ): Promise<HttpClientResponse<T>> {

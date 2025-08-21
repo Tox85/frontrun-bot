@@ -27,7 +27,7 @@ export class NoticeHandler {
       source: 'bithumb.notice',
       base: notice.base,
       url: notice.url,
-      markets: notice.markets,
+      markets: notice.markets || [],
       tradeTimeUtc: notice.tradeTimeUtc ? notice.tradeTimeUtc.toISOString() : ''
     });
 
@@ -42,7 +42,7 @@ export class NoticeHandler {
       url: notice.url ?? '',
       markets: notice.markets || [],
       tradeTimeUtc: notice.tradeTimeUtc ? notice.tradeTimeUtc.toISOString() : '',
-      rawTitle: notice.title ?? ''
+      rawTitle: notice.url ?? ''
     });
 
     if (inserted === 'DUPLICATE') {
@@ -61,7 +61,7 @@ export class NoticeHandler {
     if (timing !== 'live') {
       // Stub temporaire pour notifyListing
       await this.config.telegramService.sendMessage(
-        `🆕 [${timing.toUpperCase()}] ${notice.base} - ${notice.title} (${eventId})`,
+        `🆕 [${timing.toUpperCase()}] ${notice.base} - ${notice.url} (${eventId})`,
         'medium'
       );
       return;
@@ -70,17 +70,21 @@ export class NoticeHandler {
     // Si KRW absente (USDT-only) → notify-only (selon consigne)
     if (!notice.markets?.map(m => m.toUpperCase()).includes('KRW')) {
       await this.config.telegramService.sendMessage(
-        `🆕 [USDT-ONLY] ${notice.base} - ${notice.title} (${eventId})`,
+        `🆕 [USDT-ONLY] ${notice.base} - ${notice.url} (${eventId})`,
         'medium'
       );
       return;
     }
 
-    // Baseline guard: si base déjà en baseline KR (KRW existant) → pas de trade
-    const isInBaseline = await this.config.baselineManager.isTokenInBaseline(notice.base);
-    if (isInBaseline) {
-      console.log(`🚫 ${notice.base} déjà en baseline KR — no trade`);
-      return;
+    // Baseline guard: si base déjà en baseline KR (KRW existant) → pas de trade (sauf si bypassBaseline=true)
+    if (!notice.bypassBaseline) {
+      const isInBaseline = await this.config.baselineManager.isTokenInBaseline(notice.base);
+      if (isInBaseline) {
+        console.log(`🚫 ${notice.base} déjà en baseline KR — no trade`);
+        return;
+      }
+    } else {
+      console.log(`🧪 DEBUG: Bypass baseline activé pour ${notice.base}`);
     }
 
     // Perp lookup
@@ -95,13 +99,28 @@ export class NoticeHandler {
 
     // Trade HL - utiliser executeOpportunity si disponible
     try {
-      // Stub temporaire - à remplacer par la vraie méthode
       console.log(`🎯 [TRADE] Ouverture position long HL sur ${notice.base} (eventId=${eventId})`);
       
-      // Marquer la base comme tradée pour éviter les doubles trades cross-source
-      await this.config.eventStore.markBaseAsTraded(notice.base, eventId);
+      // Créer TradeOpportunity avec les options de bypass
+      const tradeOpportunity = {
+        token: notice.base,
+        source: 'T0_NOTICE' as const,
+        timestamp: notice.tradeTimeUtc.toISOString(),
+        bypassBaseline: notice.bypassBaseline ?? false,
+        bypassCooldown: notice.bypassCooldown ?? false,
+        dryRun: notice.dryRun ?? false
+      };
       
-      console.log(`✅ Opened long HL on ${notice.base} (eventId=${eventId})`);
+      // Exécuter le trade via TradeExecutor
+      const tradeResult = await this.config.tradeExecutor.executeOpportunity(tradeOpportunity);
+      
+      if (tradeResult?.success) {
+        // Marquer la base comme tradée pour éviter les doubles trades cross-source
+        await this.config.eventStore.markBaseAsTraded(notice.base, eventId);
+        console.log(`✅ Trade exécuté avec succès sur ${notice.base} (eventId=${eventId})`);
+      } else {
+        console.log(`❌ Trade échoué sur ${notice.base} (eventId=${eventId})`);
+      }
       
     } catch (e) {
       console.error(`❌ Trade open failed for ${notice.base}`, e);

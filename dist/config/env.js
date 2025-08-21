@@ -90,6 +90,11 @@ exports.CONFIG = {
     // Debug
     ENVZ_ENABLED: (0, exports.toBool)(process.env.ENVZ_ENABLED),
     // Nouvelles variables pour le bot optimisé
+    // T0 Robust - Configuration
+    T0_POLL_INTERVAL_MS: (0, exports.toNumber)(process.env.T0_POLL_INTERVAL_MS, 1100),
+    BASELINE_REFRESH_MINUTES: (0, exports.toNumber)(process.env.BASELINE_REFRESH_MINUTES, 5),
+    BASELINE_GRACE_MINUTES: (0, exports.toNumber)(process.env.BASELINE_GRACE_MINUTES, 10),
+    RUNSTATS_LOG_EVERY_MINUTES: (0, exports.toNumber)(process.env.RUNSTATS_LOG_EVERY_MINUTES, 5),
     UPBIT_POLL_MS: (0, exports.toNumber)(process.env.UPBIT_POLL_MS, 2000), // Polling exact 2s
     EXIT_TIMEOUT_MINUTES: (0, exports.toNumber)(process.env.EXIT_TIMEOUT_MINUTES, 3), // Sortie après 3 min
     BINANCE_INDEX_REFRESH_MS: (0, exports.toNumber)(process.env.BINANCE_INDEX_REFRESH_MS, 600000), // 10 min

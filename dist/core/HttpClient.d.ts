@@ -25,6 +25,13 @@ export declare class HttpClient {
         headers?: Record<string, string>;
         signal?: AbortSignal;
     }): Promise<HttpClientResponse<T>>;
+    /**
+     * Récupère une réponse en tant qu'ArrayBuffer pour le décodage binaire
+     */
+    getArrayBuffer(url: string): Promise<{
+        buf: ArrayBuffer;
+        headers: Headers;
+    }>;
     private executeWithRetry;
     private makeRequest;
     private fallbackRequest;

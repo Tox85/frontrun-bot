@@ -1,0 +1,66 @@
+[
+  {
+    "id": 12380,
+    "title": "가상자산(BIO) 원화 마켓 상장",
+    "categories": ["공지", "마켓"],
+    "pc_url": "https://www.bithumb.com/notice/12380",
+    "published_at": "2025-08-20 23:50:00",
+    "content": "바이오 프로토콜(BIO)이 원화 마켓에 신규 상장되었습니다. BIO-KRW 거래쌍이 활성화되었습니다."
+  },
+  {
+    "id": 12381,
+    "title": "Cryptocurrency (MERL) Market Launch",
+    "categories": ["crypto", "launch"],
+    "pc_url": "https://www.bithumb.com/notice/12381",
+    "published_at": "2025-08-20 23:52:00",
+    "content": "MERL token launch. MERL-KRW pair now active for trading."
+  },
+  {
+    "id": 12382,
+    "title": "Multi-Asset Launch (LISTA) (PEPE)",
+    "categories": ["multi-launch", "market"],
+    "pc_url": "https://www.bithumb.com/notice/12382",
+    "published_at": "2025-08-20 23:55:00",
+    "content": "Two new assets: LISTA-KRW and PEPE-KRW trading pairs available now."
+  },
+  {
+    "id": 12383,
+    "title": "System Maintenance Notice",
+    "categories": ["maintenance"],
+    "pc_url": "https://www.bithumb.com/notice/12383",
+    "published_at": "2025-08-20 23:58:00",
+    "content": "Scheduled maintenance affecting all assets. No new listings during this period."
+  },
+  {
+    "id": 12384,
+    "title": "Token (DOGE) KRW Market Addition",
+    "categories": ["notice", "market"],
+    "pc_url": "https://www.bithumb.com/notice/12384",
+    "published_at": "2025-08-21 00:00:00",
+    "content": "DOGE token added to KRW market. DOGE-KRW trading pair is now available."
+  },
+  {
+    "id": 12385,
+    "title": "가상자산(ADA) 원화 마켓 신규 추가",
+    "categories": ["공지", "마켓"],
+    "pc_url": "https://www.bithumb.com/notice/12385",
+    "published_at": "2025-08-21 00:02:00",
+    "content": "카르다노(ADA)가 원화 마켓에 신규 상장되었습니다. ADA-KRW 거래쌍이 활성화되었습니다."
+  },
+  {
+    "id": 12386,
+    "title": "Market Update (BTC) (ETH)",
+    "categories": ["update", "market"],
+    "pc_url": "https://www.bithumb.com/notice/12386",
+    "published_at": "2025-08-21 00:05:00",
+    "content": "Market update for existing assets. No new listings, just information updates."
+  },
+  {
+    "id": 12387,
+    "title": "New Listing (SOL) KRW Market",
+    "categories": ["listing", "market"],
+    "pc_url": "https://www.bithumb.com/notice/12387",
+    "published_at": "2025-08-21 00:08:00",
+    "content": "Solana (SOL) is now available for trading on KRW market. SOL-KRW pair active."
+  }
+]

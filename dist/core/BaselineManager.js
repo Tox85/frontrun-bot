@@ -16,6 +16,9 @@ class BaselineManager {
     lastBaselineFetchMs = null;
     errors999Last5m = 0;
     errorCounters = new Map();
+    baselineBuiltAt = null;
+    refreshInterval = null;
+    graceMinutes = 10; // Fenêtre de grâce par défaut
     constructor(db) {
         this.db = db;
         this.rateLimiter = new RateLimiter_1.RateLimiter();
@@ -59,6 +62,8 @@ class BaselineManager {
                     // Continuer boot normal (T2 active, T0 sera activé quand REST redevient OK)
                 }
             }
+            // Démarrer le refresh périodique
+            this.startPeriodicRefresh();
             this.isInitialized = true;
         }
         catch (error) {
@@ -86,7 +91,9 @@ class BaselineManager {
                 throw new Error('Aucun token trouvé dans la réponse Bithumb');
             }
             await this.storeBaselineKR(tokens);
-            console.log(`📊 Baseline KR stockée: ${tokens.length} tokens (BOOT ONLY)`);
+            // Enregistrer le timestamp de construction
+            this.baselineBuiltAt = new Date();
+            console.log(`📊 Baseline KR stockée: ${tokens.length} tokens (BOOT ONLY) à ${this.baselineBuiltAt.toISOString()}`);
             // Si on était en mode dégradé, passer à READY et réactiver T0
             if (this.state === 'DEGRADED' || this.state === 'CACHED') {
                 this.state = 'READY';
@@ -185,6 +192,36 @@ class BaselineManager {
         const result = await this.db.get('SELECT 1 FROM baseline_kr WHERE base = ?', [base]);
         return !!result;
     }
+    /**
+     * Vérifie si un token est dans la baseline avec support de la fenêtre de grâce
+     */
+    async isTokenInBaselineWithGrace(base, noticeTime) {
+        const inBaseline = await this.isTokenInBaseline(base);
+        if (!inBaseline) {
+            return {
+                inBaseline: false,
+                withinGrace: false,
+                reason: 'baseline=unknown → new listing'
+            };
+        }
+        // Vérifier la fenêtre de grâce
+        if (this.baselineBuiltAt && noticeTime) {
+            const graceWindowMs = this.graceMinutes * 60 * 1000;
+            const timeDiff = noticeTime.getTime() - this.baselineBuiltAt.getTime();
+            if (timeDiff <= graceWindowMs) {
+                return {
+                    inBaseline: true,
+                    withinGrace: true,
+                    reason: 'baseline=known but within grace → allow'
+                };
+            }
+        }
+        return {
+            inBaseline: true,
+            withinGrace: false,
+            reason: 'baseline=known and outside grace → block'
+        };
+    }
     async isTokenNew(base) {
         return !(await this.isTokenInBaseline(base));
     }
@@ -217,7 +254,9 @@ class BaselineManager {
             activeTokens: stats.total,
             lastUpdated: stats.lastUpdated,
             source: 'bithumb.rest',
-            sanity: stats.sanity
+            sanity: stats.sanity,
+            baselineBuiltAt: this.baselineBuiltAt?.toISOString() || null,
+            graceMinutes: this.graceMinutes
         };
     }
     // ⚠️ INTERDIT: refreshBaseline() supprimé - baseline construite au boot uniquement
@@ -260,6 +299,44 @@ class BaselineManager {
             clearTimeout(this.retryTimer);
             this.retryTimer = null;
         }
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
+    }
+    /**
+     * Démarre le refresh périodique de la baseline
+     */
+    startPeriodicRefresh() {
+        const refreshMinutes = 5; // Configurable via env
+        this.refreshInterval = setInterval(async () => {
+            try {
+                console.log(`🔄 Refresh périodique de la baseline KR (${refreshMinutes} minutes)...`);
+                await this.fetchAndStoreBaseline();
+                console.log('✅ Baseline KR rafraîchie avec succès');
+            }
+            catch (error) {
+                console.warn('⚠️ Échec du refresh périodique de la baseline:', error);
+            }
+        }, refreshMinutes * 60 * 1000);
+        console.log(`🔄 Refresh périodique de la baseline activé (${refreshMinutes} minutes)`);
+    }
+    /**
+     * Met à jour l'intervalle de refresh
+     */
+    updateRefreshInterval(minutes) {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+        }
+        this.startPeriodicRefresh();
+        console.log(`⚙️ Intervalle de refresh mis à jour: ${minutes} minutes`);
+    }
+    /**
+     * Met à jour la fenêtre de grâce
+     */
+    updateGraceWindow(minutes) {
+        this.graceMinutes = minutes;
+        console.log(`⚙️ Fenêtre de grâce mise à jour: ${minutes} minutes`);
     }
     getStatus() {
         return {

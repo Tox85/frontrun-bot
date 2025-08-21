@@ -52,6 +52,10 @@ export declare const CONFIG: {
     readonly ENABLE_KOREAN_LOGS: boolean;
     readonly ENABLE_VERBOSE_LOGS: true;
     readonly ENVZ_ENABLED: boolean;
+    readonly T0_POLL_INTERVAL_MS: number;
+    readonly BASELINE_REFRESH_MINUTES: number;
+    readonly BASELINE_GRACE_MINUTES: number;
+    readonly RUNSTATS_LOG_EVERY_MINUTES: number;
     readonly UPBIT_POLL_MS: number;
     readonly EXIT_TIMEOUT_MINUTES: number;
     readonly BINANCE_INDEX_REFRESH_MS: number;

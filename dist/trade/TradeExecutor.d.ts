@@ -27,6 +27,9 @@ export interface TradeOpportunity {
     timestamp: string;
     price?: number;
     volume?: number;
+    bypassBaseline?: boolean | undefined;
+    bypassCooldown?: boolean | undefined;
+    dryRun?: boolean | undefined;
 }
 export declare class TradeExecutor {
     private hyperliquid;
@@ -38,6 +41,8 @@ export declare class TradeExecutor {
     private config;
     private activeTrades;
     private cooldowns;
+    private tradesOpenedCount;
+    private exitPendingCount;
     constructor(hyperliquid: HyperliquidAdapter, exitScheduler: ExitScheduler, positionSizer: PositionSizer, baselineManager: BaselineManager, perpCatalog: PerpCatalog, telegramService: TelegramService, config: TradeConfig);
     /**
      * Exécute un trade d'opportunité (T0 ou T2)
@@ -83,4 +88,16 @@ export declare class TradeExecutor {
      * Arrête l'exécuteur de trades
      */
     stop(): Promise<void>;
+    /**
+     * Méthodes pour le self-test
+     */
+    private incrementTradesOpened;
+    private incrementExitPending;
+    /**
+     * Obtient les métriques pour le self-test
+     */
+    getSelfTestMetrics(): {
+        tradesOpened: number;
+        exitPending: number;
+    };
 }

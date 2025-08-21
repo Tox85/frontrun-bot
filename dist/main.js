@@ -13,11 +13,13 @@ const SingletonGuard_1 = require("./core/SingletonGuard");
 const NoticeClient_1 = require("./watchers/NoticeClient");
 const BithumbWSWatcher_1 = require("./watchers/BithumbWSWatcher");
 const HealthMonitor_1 = require("./core/HealthMonitor");
+const HttpClient_1 = require("./core/HttpClient");
 const sqlite3_1 = require("sqlite3");
 const Migrations_1 = require("./store/Migrations");
 const EventStore_1 = require("./core/EventStore");
 const WatermarkStore_1 = require("./store/WatermarkStore");
 const EventId_1 = require("./core/EventId");
+const Latency_1 = require("./metrics/Latency");
 // Configuration
 const BOT_CONFIG = {
     // Telegram
@@ -83,7 +85,8 @@ async function gracefulShutdown(signal) {
         if (noticeClient) {
             const logDeduper = noticeClient.getLogDeduper();
             if (logDeduper) {
-                logDeduper.flush();
+                // LogDeduper est maintenant un Map simple, pas besoin de flush
+                logDeduper.clear();
                 console.log('✅ LogDeduper flushed');
             }
             noticeClient.stopPolling();
@@ -122,10 +125,19 @@ async function main() {
         const migrationRunner = new Migrations_1.MigrationRunner(db);
         await migrationRunner.runMigrations();
         console.log('✅ Database migrations completed');
-        // 2. Vérifier le leadership (SingletonGuard)
+        // 2. Vérifier le leadership (singleton)
         console.log('👑 Checking leadership...');
         singletonGuard = new SingletonGuard_1.SingletonGuard(db);
-        const isLeader = await singletonGuard.tryAcquireLeadership();
+        // PATCH TEMPORAIRE: Forcer le leadership pour les tests T0 Ready
+        let isLeader;
+        if (process.env.NODE_ENV === 'development' || process.env.FORCE_LEADER === 'true') {
+            console.log('🔧 PATCH TEMPORAIRE: Forcing leadership for T0 Ready testing');
+            singletonGuard.forceLeadership();
+            isLeader = true;
+        }
+        else {
+            isLeader = await singletonGuard.tryAcquireLeadership();
+        }
         if (!isLeader) {
             console.log('👀 Running in OBSERVER_MODE - not the leader instance');
             // En mode observateur, démarrer le serveur HTTP pour le monitoring
@@ -204,11 +216,13 @@ async function main() {
             // 4. Initialiser les watchers en mode monitoring
             console.log('👀 Initializing monitoring watchers...');
             // T0: NoticeClient (API publique notices) avec watermark
-            noticeClient = new NoticeClient_1.NoticeClient(watermarkStore, {
-                logDedupWindowMs: BOT_CONFIG.LOG_DEDUP_WINDOW_MS,
-                logDedupMaxPerWindow: BOT_CONFIG.LOG_DEDUP_MAX_PER_WINDOW,
-                maxNoticeAgeMin: BOT_CONFIG.MAX_NOTICE_AGE_MIN
-            });
+            noticeClient = new NoticeClient_1.NoticeClient('https://api.bithumb.com/v1/notices', new HttpClient_1.HttpClient('NoticeClient', {
+                timeoutMs: 5000,
+                maxRetries: 3,
+                baseRetryDelayMs: 250,
+                maxRetryDelayMs: 500,
+                jitterPercent: 20
+            }), watermarkStore, BOT_CONFIG.LOG_DEDUP_WINDOW_MS, BOT_CONFIG.LOG_DEDUP_MAX_PER_WINDOW);
             console.log('📡 NoticeClient initialized for T0 detection (API publique) + watermark protection');
             // T2: WebSocket Bithumb
             if (BOT_CONFIG.WS_ENABLED) {
@@ -231,21 +245,27 @@ async function main() {
                 t0Interval = setInterval(async () => {
                     try {
                         t0Polls++;
-                        console.log(`📡 T0 Poll #${t0Polls} - Checking for new listings...`);
                         const startTime = Date.now();
                         const listings = await noticeClient.getLatestListings(BOT_CONFIG.T0_MAX_NOTICES_PER_POLL);
                         const processingTime = Date.now() - startTime;
                         // Enregistrer la latence de traitement
                         healthMonitor.recordNoticeLatency(processingTime);
+                        // PATCH C: Résumé compact par poll avec métriques complètes
+                        const latencyMetrics = Latency_1.latency.getMetrics();
+                        const newCount = latencyMetrics.t0_new_total;
+                        const dupCount = latencyMetrics.t0_dup_total;
+                        const futureCount = latencyMetrics.t0_future_total;
+                        const staleCount = latencyMetrics.t0_stale_total;
+                        // Toujours afficher le résumé, même si listings.length === 0
+                        console.log(`📊 T0 Poll #${t0Polls}: NEW=${newCount}, DUP=${dupCount}, FUTURE=${futureCount}, STALE=${staleCount} (T=${processingTime}ms)`);
                         for (const listing of listings) {
-                            console.log(`🔍 Processing listing: ${listing.base} (${listing.eventId.substring(0, 8)}...)`);
                             // PHASE 1: DÉDUPLICATION CENTRALISÉE AVANT TOUT TRAITEMENT
                             const eventId = (0, EventId_1.buildEventId)({
                                 source: 'bithumb.notice',
                                 base: listing.base,
                                 url: listing.url,
                                 markets: listing.markets || [],
-                                tradeTimeUtc: listing.publishedAtUtc
+                                tradeTimeUtc: listing.tradeTimeUtc.toISOString()
                             });
                             try {
                                 const dedupResult = await eventStore.tryMarkProcessed({
@@ -254,14 +274,14 @@ async function main() {
                                     base: listing.base,
                                     url: listing.url,
                                     markets: listing.markets || [],
-                                    tradeTimeUtc: listing.publishedAtUtc,
-                                    rawTitle: listing.title
+                                    tradeTimeUtc: listing.tradeTimeUtc.toISOString(),
+                                    rawTitle: listing.url
                                 });
                                 if (dedupResult === 'DUPLICATE') {
-                                    console.log(`⏭️ [DEDUP] DUPLICATE ${eventId.substring(0, 8)}... base=${listing.base} — SKIP`);
+                                    // PATCH 2: Pas de log pour les doublons - EventStore gère déjà
                                     continue; // STOP NET - aucune notif, aucun trade
                                 }
-                                console.log(`✅ [DEDUP] INSERTED ${eventId.substring(0, 8)}... base=${listing.base}`);
+                                // PATCH 2: Log unique pour INSERTED déjà dans EventStore
                             }
                             catch (error) {
                                 console.error(`❌ [DEDUP] Error in deduplication:`, error);
@@ -270,10 +290,10 @@ async function main() {
                             // PHASE 2: GATING SYMBOLIQUE (seulement si INSERTED)
                             const isNew = await baselineManager.isTokenNew(listing.base);
                             if (isNew) {
-                                console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
+                                console.log(`🎯 NEW LISTING DETECTED: ${listing.base}`);
                                 // Notification Telegram
                                 if (BOT_CONFIG.TELEGRAM_BOT_TOKEN && BOT_CONFIG.TELEGRAM_CHAT_ID) {
-                                    const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **T0 DETECTION** ⚡\n\n💰 **TRADING DISABLED** - Hyperliquid connection issue`;
+                                    const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Source:** ${listing.source}\n\n⚡ **T0 DETECTION** ⚡\n\n💰 **TRADING DISABLED** - Hyperliquid connection issue`;
                                     await telegramService.sendMessage(message);
                                 }
                                 console.log(`💰 Trade execution disabled (Hyperliquid connection issue)`);
@@ -281,9 +301,6 @@ async function main() {
                             else {
                                 console.log(`⏭️ Token already in baseline: ${listing.base}`);
                             }
-                        }
-                        if (listings.length > 0) {
-                            console.log(`✅ T0 Poll #${t0Polls}: Found ${listings.length} listings`);
                         }
                     }
                     catch (error) {
@@ -348,11 +365,13 @@ async function main() {
         // 5. Initialiser les watchers
         console.log('👀 Initializing watchers...');
         // T0: NoticeClient (API publique notices) avec watermark
-        noticeClient = new NoticeClient_1.NoticeClient(watermarkStore, {
-            logDedupWindowMs: BOT_CONFIG.LOG_DEDUP_WINDOW_MS,
-            logDedupMaxPerWindow: BOT_CONFIG.LOG_DEDUP_MAX_PER_WINDOW,
-            maxNoticeAgeMin: BOT_CONFIG.MAX_NOTICE_AGE_MIN
-        });
+        noticeClient = new NoticeClient_1.NoticeClient('https://api.bithumb.com/v1/notices', new HttpClient_1.HttpClient('NoticeClient', {
+            timeoutMs: 5000,
+            maxRetries: 3,
+            baseRetryDelayMs: 250,
+            maxRetryDelayMs: 500,
+            jitterPercent: 20
+        }), watermarkStore, BOT_CONFIG.LOG_DEDUP_WINDOW_MS, BOT_CONFIG.LOG_DEDUP_MAX_PER_WINDOW);
         console.log('📡 NoticeClient initialized for T0 detection (API publique) + watermark protection');
         // T2: WebSocket Bithumb
         if (BOT_CONFIG.WS_ENABLED) {
@@ -375,12 +394,20 @@ async function main() {
             t0Interval = setInterval(async () => {
                 try {
                     t0Polls++;
-                    console.log(`📡 T0 Poll #${t0Polls} - Checking for new listings...`);
                     const startTime = Date.now();
                     const listings = await noticeClient.getLatestListings(BOT_CONFIG.T0_MAX_NOTICES_PER_POLL);
                     const processingTime = Date.now() - startTime;
                     // Enregistrer la latence de traitement
                     healthMonitor.recordNoticeLatency(processingTime);
+                    // PATCH 2: Un seul résumé compact par poll avec métriques de latence
+                    const latencyMetrics = Latency_1.latency.getMetrics();
+                    const newCount = latencyMetrics.t0_new_total;
+                    const dupCount = latencyMetrics.t0_dup_total;
+                    const futureCount = latencyMetrics.t0_future_total;
+                    const staleCount = latencyMetrics.t0_stale_total;
+                    if (listings.length > 0) {
+                        console.log(`📊 T0 Poll #${t0Polls}: NEW=${newCount}, DUP=${dupCount}, FUTURE=${futureCount}, STALE=${staleCount} (T=${processingTime}ms)`);
+                    }
                     for (const listing of listings) {
                         // PHASE 1: DÉDUPLICATION CENTRALISÉE AVANT TOUT TRAITEMENT
                         const eventId = (0, EventId_1.buildEventId)({
@@ -388,7 +415,7 @@ async function main() {
                             base: listing.base,
                             url: listing.url,
                             markets: listing.markets || [],
-                            tradeTimeUtc: listing.publishedAtUtc
+                            tradeTimeUtc: listing.tradeTimeUtc.toISOString()
                         });
                         try {
                             const dedupResult = await eventStore.tryMarkProcessed({
@@ -397,14 +424,14 @@ async function main() {
                                 base: listing.base,
                                 url: listing.url,
                                 markets: listing.markets || [],
-                                tradeTimeUtc: listing.publishedAtUtc,
-                                rawTitle: listing.title
+                                tradeTimeUtc: listing.tradeTimeUtc.toISOString(),
+                                rawTitle: listing.url
                             });
                             if (dedupResult === 'DUPLICATE') {
-                                console.log(`⏭️ [DEDUP] DUPLICATE ${eventId.substring(0, 8)}... base=${listing.base} — SKIP`);
+                                // PATCH 2: Pas de log pour les doublons - EventStore gère déjà
                                 continue; // STOP NET - aucune notif, aucun trade
                             }
-                            console.log(`✅ [DEDUP] INSERTED ${eventId.substring(0, 8)}... base=${listing.base}`);
+                            // PATCH 2: Log unique pour INSERTED déjà dans EventStore
                         }
                         catch (error) {
                             console.error(`❌ [DEDUP] Error in deduplication:`, error);
@@ -413,10 +440,10 @@ async function main() {
                         // PHASE 2: GATING SYMBOLIQUE (seulement si INSERTED)
                         const isNew = await baselineManager.isTokenNew(listing.base);
                         if (isNew) {
-                            console.log(`🎯 NEW LISTING DETECTED: ${listing.base} (${listing.priority} priority)`);
+                            console.log(`🎯 NEW LISTING DETECTED: ${listing.base}`);
                             // Notification Telegram
                             if (BOT_CONFIG.TELEGRAM_BOT_TOKEN && BOT_CONFIG.TELEGRAM_CHAT_ID) {
-                                const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Priority:** ${listing.priority.toUpperCase()}\n**Status:** ${listing.status.toUpperCase()}\n\n**Title:** ${listing.title}\n**Source:** ${listing.source}\n\n⚡ **T0 DETECTION** ⚡`;
+                                const message = `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Source:** ${listing.source}\n\n⚡ **T0 DETECTION** ⚡\n\n💰 **TRADING DISABLED** - Hyperliquid connection issue`;
                                 await telegramService.sendMessage(message);
                             }
                             // Exécuter le trade si activé
@@ -444,9 +471,7 @@ async function main() {
                             }
                         }
                     }
-                    if (listings.length > 0) {
-                        console.log(`✅ T0 Poll #${t0Polls}: Found ${listings.length} listings`);
-                    }
+                    // PATCH 2: Supprimer le log "Found X listings" - déjà dans le résumé compact
                 }
                 catch (error) {
                     console.error(`❌ T0 Poll #${t0Polls} failed:`, error);

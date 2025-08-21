@@ -7,6 +7,7 @@ const TelegramService_1 = require("../notify/TelegramService");
 const BaselineManager_1 = require("../core/BaselineManager");
 const Migrations_1 = require("../store/Migrations");
 const WatermarkStore_1 = require("../store/WatermarkStore");
+const HttpClient_1 = require("../core/HttpClient");
 async function simulateNotice() {
     console.log('🚀 Simulation du NoticeClient...');
     try {
@@ -29,7 +30,15 @@ async function simulateNotice() {
         const watermarkStore = new WatermarkStore_1.WatermarkStore(db);
         await watermarkStore.initializeAtBoot('bithumb.notice');
         // Créer le NoticeClient
-        const noticeClient = new NoticeClient_1.NoticeClient(watermarkStore);
+        const noticeClient = new NoticeClient_1.NoticeClient('https://api.bithumb.com/v1/notices', new HttpClient_1.HttpClient('NoticeClient', {
+            timeoutMs: 5000,
+            maxRetries: 3,
+            baseRetryDelayMs: 250,
+            maxRetryDelayMs: 500,
+            jitterPercent: 20
+        }), watermarkStore, 60000, // logDedupWindowMs
+        2 // logDedupMaxPerWindow
+        );
         console.log('✅ NoticeClient créé avec succès');
         // Simuler une notice
         const mockNotice = {
@@ -40,12 +49,17 @@ async function simulateNotice() {
             published_at: new Date().toISOString()
         };
         // Tester le traitement de la notice
-        const processed = noticeClient.processNotice(mockNotice);
-        if (processed) {
+        const processedResults = await noticeClient.processNotice(mockNotice);
+        if (processedResults && processedResults.length > 0) {
+            // Prendre le premier résultat pour la simulation
+            const processed = processedResults[0];
+            if (!processed) {
+                console.log('⚠️ Notice non traitée (pas de résultat valide)');
+                return;
+            }
             console.log('✅ Notice traitée avec succès:', {
                 base: processed.base,
                 eventId: processed.eventId,
-                priority: processed.priority,
                 source: processed.source
             });
             // Vérifier si c'est un nouveau token
@@ -56,7 +70,7 @@ async function simulateNotice() {
                 await db.run('INSERT OR IGNORE INTO processed_events (event_id, base, source, url, created_at_utc) VALUES (?, ?, ?, ?, datetime("now"))', [processed.eventId, processed.base, processed.source, processed.url]);
                 console.log('✅ Événement enregistré en DB');
                 // Notification Telegram
-                await telegramService.sendMessage(`🧪 **SIMULATION NOTICE** 🧪\n\n**Token:** \`${processed.base}\`\n**Title:** ${processed.title}\n**Source:** ${processed.source}`);
+                await telegramService.sendMessage(`🧪 **SIMULATION NOTICE** 🧪\n\n**Token:** \`${processed.base}\`\n**Source:** ${processed.source}`);
                 console.log('✅ Notification Telegram envoyée');
             }
         }

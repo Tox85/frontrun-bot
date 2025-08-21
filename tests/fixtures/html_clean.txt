@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bithumb Notices</title>
+</head>
+<body>
+    <div class="notice-container">
+        <div class="notice-item">
+            <h3>가상자산(BIO) 원화 마켓 신규 추가</h3>
+            <div class="date">2025-08-20 23:16:52</div>
+            <div class="content">바이오 프로토콜(BIO)이 원화 마켓에 신규 상장되었습니다.</div>
+        </div>
+        <div class="notice-item">
+            <h3>시스템 점검 공지</h3>
+            <div class="date">2025-08-20 23:15:00</div>
+            <div class="content">시스템 점검이 예정되어 있습니다.</div>
+        </div>
+    </div>
+</body>
+</html>

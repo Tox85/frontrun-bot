@@ -26,6 +26,16 @@ class HttpClient {
     async post(url, data, options) {
         return this.circuitBreaker.execute(() => this.executeWithRetry(() => this.makeRequest(url, 'POST', { ...options, data })), () => this.fallbackRequest(url, options));
     }
+    /**
+     * Récupère une réponse en tant qu'ArrayBuffer pour le décodage binaire
+     */
+    async getArrayBuffer(url) {
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok)
+            throw new Error(`HTTP ${res.status} ${url}`);
+        const buf = await res.arrayBuffer();
+        return { buf, headers: res.headers };
+    }
     async executeWithRetry(operation) {
         let lastError;
         for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {

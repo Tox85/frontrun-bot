@@ -1,47 +1,50 @@
+import { HttpClient } from '../core/HttpClient';
 import { WatermarkStore } from '../store/WatermarkStore';
-import { LogDeduper } from '../core/LogDeduper';
 export interface BithumbNotice {
     id?: number;
     title: string;
-    categories: string[];
-    pc_url: string;
-    published_at: string;
     content?: string;
+    categories?: string[];
+    pc_url?: string;
+    published_at: string;
+    base?: string;
+    url?: string;
+    markets?: string[];
+    tradeTimeUtc?: Date;
+    source?: string;
 }
 export interface ProcessedNotice {
     eventId: string;
     base: string;
-    title: string;
     url: string;
-    publishedAtUtc: string;
-    markets: string[];
-    priority: 'high' | 'medium' | 'low';
-    status: 'scheduled' | 'live' | 'completed';
-    source: 'bithumb.notice';
-    tradeTimeUtc?: Date | undefined;
+    tradeTimeUtc: Date;
+    source: "bithumb.notice" | "bithumb.ws" | "simulate";
+    title: string;
+    content: string;
+    categories: string[];
+    markets?: string[];
+    timing?: "live" | "future" | "stale";
+    bypassBaseline?: boolean;
+    bypassCooldown?: boolean;
+    dryRun?: boolean;
 }
 export declare class NoticeClient {
-    private readonly baseUrl;
-    private readonly keywords;
-    private readonly rateLimit;
-    private watermarkStore;
-    private logDeduper;
+    private baseUrl;
     private httpClient;
-    private pollCount;
+    private watermarkStore;
+    private logDedupWindowMs;
+    private logDedupMaxPerWindow;
     private _isEnabled;
-    private pollTimer;
     private retryTimer;
+    private static readonly HTML_LIST_URL;
+    private static readonly JSON_URL;
+    private circuitBreakers;
+    private htmlState;
+    private htmlNextRetryAt;
+    private static readonly GENERIC_ALIASES;
+    constructor(baseUrl: string, httpClient: HttpClient, watermarkStore: WatermarkStore, logDedupWindowMs?: number, logDedupMaxPerWindow?: number);
     /**
-     * Méthode publique pour accéder au logDeduper (pour flush lors de l'arrêt)
-     */
-    getLogDeduper(): LogDeduper;
-    constructor(watermarkStore: WatermarkStore, config?: {
-        logDedupWindowMs?: number;
-        logDedupMaxPerWindow?: number;
-        maxNoticeAgeMin?: number;
-    });
-    /**
-     * Active T0 seulement si la baseline est prête
+     * Active T0
      */
     enable(): void;
     /**
@@ -49,55 +52,72 @@ export declare class NoticeClient {
      */
     disable(reason: string): void;
     private scheduleRetry;
+    private noteError;
+    private canTry;
+    private noteSuccess;
+    private fetchJsonNoticeAsText;
+    private fetchHtmlNoticeAsText;
+    private debugHttpProblem;
     /**
-     * Filtre les notices pour détecter les nouveaux listings
+     * PATCH T0 Robust: Génère un eventId unique pour une notice
      */
-    isListingNotice(notice: BithumbNotice): boolean;
+    private buildNoticeEventId;
     /**
-     * Extrait la base du token depuis le titre
+     * PATCH T0 Robust: Choisit la meilleure source entre JSON et HTML
      */
-    private extractTokenBase;
+    private chooseBestSource;
     /**
-     * Extrait les marchés mentionnés
+     * PATCH T0 Robust: Extraction des bases avec fusion des détecteurs
      */
-    extractMarkets(notice: BithumbNotice): string[];
+    private extractBasesOnce;
     /**
-     * Convertit le timestamp KST en UTC
+     * PATCH T0 Robust: Scoring intelligent avec override
      */
-    parsePublishedUtc(notice: BithumbNotice): string;
+    private calculateT0Score;
     /**
-     * Détecte si c'est un pré-listing (date future) et retourne la Date
+     * PATCH T0 Robust: Traitement des notices avec préfiltrage watermark
      */
-    parseTradeTime(notice: BithumbNotice): Date | null;
+    processNotice(notice: BithumbNotice, opts?: {
+        source?: "t0" | "t2" | "simulate";
+        ignoreWatermark?: boolean;
+        forceTiming?: "live" | "future" | "stale";
+        bypassBaseline?: boolean;
+        bypassCooldown?: boolean;
+        dryRun?: boolean;
+    }): Promise<ProcessedNotice[]>;
     /**
-     * Calcule la priorité du listing
+     * PATCH T0 Robust: Récupération des notices avec fallback multi-source
      */
-    calculatePriority(notice: BithumbNotice): 'high' | 'medium' | 'low';
+    fetchLatestNotices(): Promise<BithumbNotice[]>;
     /**
-     * Traite une notice et la convertit en format interne
-     * NE LOG PLUS "Notice processed" ici - sera fait après déduplication
+     * Récupère les dernières notices traitées (alias pour compatibilité)
      */
-    processNotice(notice: BithumbNotice): ProcessedNotice | null;
+    getLatestListings(count?: number): Promise<ProcessedNotice[]>;
     /**
-     * Récupère les dernières notices depuis l'API officielle Bithumb
-     * UNIQUEMENT l'API publique - pas de scraping du site web
+     * Récupère le déduplicateur de logs (alias pour compatibilité)
      */
-    fetchLatestNotices(count?: number): Promise<BithumbNotice[]>;
+    getLogDeduper(): {
+        dedup: (key: string, ttlMs: number) => boolean;
+        clear: () => void;
+    };
     /**
-     * Démarrer le polling avec jitter
-     */
-    startPolling(callback: (listings: ProcessedNotice[]) => void): void;
-    private scheduleNextPoll;
-    private pollWithCallback;
-    private getPollStats;
-    /**
-     * Arrêter le polling
+     * Arrête le polling (alias pour compatibilité)
      */
     stopPolling(): void;
     /**
-     * Récupère et traite les dernières notices avec watermark et déduplication
+     * PATCH T0 Robust: Parse les notices depuis le HTML de fallback
      */
-    getLatestListings(count?: number): Promise<ProcessedNotice[]>;
-    getCircuitBreakerStats(): import("../core/CircuitBreaker").CircuitBreakerStats;
-    isEnabled(): boolean;
+    private parseNoticesFromHtml;
+    /**
+     * Parse le temps de trade depuis le format KST
+     */
+    private parseTradeTime;
+    /**
+     * Vérifie si le client est activé
+     */
+    get isEnabled(): boolean;
+    /**
+     * Arrête le client
+     */
+    stop(): void;
 }

@@ -72,18 +72,20 @@ class WatermarkStore {
      * Initialise le watermark au boot avec la notice la plus récente
      */
     async initializeAtBoot(source) {
-        // Au boot, on ne peut pas initialiser avec des notices futures
-        // On utilise un timestamp très ancien pour traiter toutes les notices
+        // Anti-replay: initialiser à now - 300s (5 minutes)
+        // Évite de re-traiter les notices récentes au redémarrage
         const now = Date.now();
+        const fiveMinutesAgo = now - (5 * 60 * 1000); // 300 secondes
         await new Promise((resolve, reject) => {
             this.db.run(`INSERT OR REPLACE INTO watermarks (source, last_published_at, last_notice_uid, updated_at)
-         VALUES (?, ?, ?, ?)`, [source, 0, '', now], (err) => {
+         VALUES (?, ?, ?, ?)`, [source, fiveMinutesAgo, '', now], (err) => {
                 if (err)
                     reject(err);
                 else
                     resolve();
             });
         });
+        console.log(`🔒 Watermark ${source} initialisé à ${new Date(fiveMinutesAgo).toISOString()} (anti-replay)`);
     }
 }
 exports.WatermarkStore = WatermarkStore;

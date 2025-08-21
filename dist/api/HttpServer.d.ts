@@ -38,10 +38,15 @@ export declare class HttpServer {
     incrementMetric(metric: keyof typeof this.unifiedMetrics): void;
     private getStatus;
     private getWhoami;
+    private getReadinessStatus;
     private simulateNotice;
     private simulateWS;
     private simulateNotifyBurst;
     private getDatabaseSchema;
+    /**
+     * Exécute le self-test post-détection
+     */
+    private runSelfTest;
     start(): Promise<void>;
     stop(): Promise<void>;
 }

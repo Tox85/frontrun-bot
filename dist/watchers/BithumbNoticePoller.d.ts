@@ -39,7 +39,8 @@ export declare class BithumbNoticePoller {
      */
     private pollOnce;
     /**
-     * Traite une notice individuelle
+     * Traite une notice individuelle déjà traitée par NoticeClient
+     * Les ProcessedNotice contiennent déjà les tickers extraits
      */
     private processNotice;
     /**

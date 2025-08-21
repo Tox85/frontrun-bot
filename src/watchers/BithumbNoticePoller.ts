@@ -2,6 +2,8 @@ import { NoticeClient, ProcessedNotice } from './NoticeClient';
 import { TokenRegistry } from '../store/TokenRegistry';
 import { TelegramService } from '../notify/TelegramService';
 import { WatermarkStore } from '../store/WatermarkStore';
+import { HttpClient } from '../core/HttpClient';
+import { getRunStatsTracker } from '../metrics/RunStats';
 
 export interface NoticePollerConfig {
   pollIntervalMs: number;
@@ -39,11 +41,19 @@ export class BithumbNoticePoller {
     config: NoticePollerConfig
   ) {
     this.watermarkStore = watermarkStore;
-    this.noticeClient = new NoticeClient(watermarkStore, {
-      logDedupWindowMs: 60000, // 1 min par défaut
-      logDedupMaxPerWindow: 2, // 2 logs max par fenêtre
-      maxNoticeAgeMin: 180 // 3h par défaut
-    });
+    this.noticeClient = new NoticeClient(
+      'https://api.bithumb.com/v1/notices',
+      new HttpClient('NoticeClient', {
+        timeoutMs: 5000,
+        maxRetries: 3,
+        baseRetryDelayMs: 250,
+        maxRetryDelayMs: 500,
+        jitterPercent: 20
+      }),
+      watermarkStore,
+      60000, // logDedupWindowMs
+      2      // logDedupMaxPerWindow
+    );
     this.tokenRegistry = tokenRegistry;
     this.telegramService = telegramService;
     this.config = config;
@@ -138,39 +148,58 @@ export class BithumbNoticePoller {
   }
 
   /**
-   * Traite une notice individuelle
+   * Traite une notice individuelle déjà traitée par NoticeClient
+   * Les ProcessedNotice contiennent déjà les tickers extraits
    */
   private async processNotice(notice: ProcessedNotice): Promise<boolean> {
     try {
-      // Vérifier si c'est un nouveau token
-      const isNew = await this.tokenRegistry.isNew(notice.base);
-      if (!isNew) {
-        if (this.config.enableLogging) {
-          console.log(`⏭️ Token ${notice.base} already known, skipping`);
-        }
+      // La notice est déjà traitée, utiliser directement le base
+      const ticker = notice.base;
+      
+      if (!ticker) {
+        console.debug(`⚠️ No ticker found in processed notice`);
         return false;
       }
-
-      // Enregistrer le nouveau token
-      await this.tokenRegistry.addProcessedEvent({
-        eventId: notice.eventId,
-        base: notice.base,
-        url: notice.url,
-        tradeTimeUtc: notice.publishedAtUtc,
-        source: 'bithumb.notice'
-      });
-
-      console.log(`🎯 NEW LISTING DETECTED: ${notice.base} (${notice.priority} priority)`);
       
-      // Log détaillé si activé
-      if (this.config.enableLogging) {
-        console.log(`📋 Details: ${notice.title}`);
-        console.log(`🔗 URL: ${notice.url}`);
-        console.log(`⏰ Published: ${notice.publishedAtUtc}`);
-        console.log(`📊 Status: ${notice.status}`);
-      }
+      const runStats = getRunStatsTracker();
+      
+      try {
+        // Vérifier si c'est un nouveau token
+        const isNew = await this.tokenRegistry.isNew(ticker);
+        if (!isNew) {
+          if (this.config.enableLogging) {
+            console.debug(`⏭️ Token ${ticker} already known, skipping`);
+          }
+          return false;
+        }
 
-      return true;
+        // Enregistrer le nouveau token
+        await this.tokenRegistry.addProcessedEvent({
+          eventId: notice.eventId,
+          base: ticker,
+          url: notice.url,
+          tradeTimeUtc: notice.tradeTimeUtc.toISOString(),
+          source: notice.source === 'simulate' ? 'bithumb.notice' : notice.source
+        });
+
+        // Incrémenter les statistiques
+        runStats.incrementNewListings(ticker);
+        runStats.incrementT0Events();
+
+        console.log(`🎯 NEW LISTING DETECTED: ${ticker}`);
+        console.log(`📋 Details: ${notice.url}`);
+        console.log(`⏰ Published: ${notice.tradeTimeUtc.toISOString()}`);
+        console.log(`📊 Source: ${notice.source}`);
+
+        // Incrémenter le compteur de notices traitées
+        runStats.incrementNoticesProcessed();
+        
+        return true;
+        
+      } catch (error) {
+        console.error(`❌ Error processing ticker ${ticker}:`, error);
+        return false;
+      }
       
     } catch (error) {
       console.error(`❌ Error processing notice for ${notice.base}:`, error);
@@ -235,31 +264,7 @@ export class BithumbNoticePoller {
    * Formate le message Telegram
    */
   private formatTelegramMessage(listing: ProcessedNotice): string {
-    const priorityEmoji = {
-      high: '🚨',
-      medium: '⚠️',
-      low: 'ℹ️'
-    };
-    
-    const statusEmoji = {
-      scheduled: '⏰',
-      live: '🟢',
-      completed: '✅'
-    };
-
-    return `${priorityEmoji[listing.priority]} **NEW LISTING DETECTED** ${statusEmoji[listing.status]}
-
-**Token:** \`${listing.base}\`
-**Priority:** ${listing.priority.toUpperCase()}
-**Status:** ${listing.status.toUpperCase()}
-
-**Title:** ${listing.title}
-**Published:** ${new Date(listing.publishedAtUtc).toLocaleString()}
-**Source:** ${listing.source}
-
-🔗 [View Notice](${listing.url})
-
-⚡ **ULTRA-COMPETITIVE T0 DETECTION** ⚡`;
+    return `🚨 **NEW LISTING DETECTED** 🚨\n\n**Token:** \`${listing.base}\`\n**Source:** ${listing.source}\n**URL:** ${listing.url}\n**Published:** ${listing.tradeTimeUtc.toLocaleString()}`;
   }
 
   /**

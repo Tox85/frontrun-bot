@@ -6,6 +6,7 @@ import { TelegramService } from '../notify/TelegramService';
 import { BaselineManager } from '../core/BaselineManager';
 import { MigrationRunner } from '../store/Migrations';
 import { WatermarkStore } from '../store/WatermarkStore';
+import { HttpClient } from '../core/HttpClient';
 
 async function simulateNotice() {
   console.log('🚀 Simulation du NoticeClient...');
@@ -35,7 +36,19 @@ async function simulateNotice() {
     await watermarkStore.initializeAtBoot('bithumb.notice');
     
     // Créer le NoticeClient
-    const noticeClient = new NoticeClient(watermarkStore);
+    const noticeClient = new NoticeClient(
+      'https://api.bithumb.com/v1/notices',
+      new HttpClient('NoticeClient', {
+        timeoutMs: 5000,
+        maxRetries: 3,
+        baseRetryDelayMs: 250,
+        maxRetryDelayMs: 500,
+        jitterPercent: 20
+      }),
+      watermarkStore,
+      60000, // logDedupWindowMs
+      2      // logDedupMaxPerWindow
+    );
     console.log('✅ NoticeClient créé avec succès');
     
     // Simuler une notice
@@ -48,13 +61,18 @@ async function simulateNotice() {
     };
     
     // Tester le traitement de la notice
-    const processed = noticeClient.processNotice(mockNotice);
+    const processedResults = await noticeClient.processNotice(mockNotice);
     
-    if (processed) {
+    if (processedResults && processedResults.length > 0) {
+      // Prendre le premier résultat pour la simulation
+      const processed = processedResults[0];
+      if (!processed) {
+        console.log('⚠️ Notice non traitée (pas de résultat valide)');
+        return;
+      }
       console.log('✅ Notice traitée avec succès:', {
         base: processed.base,
         eventId: processed.eventId,
-        priority: processed.priority,
         source: processed.source
       });
       
@@ -72,7 +90,7 @@ async function simulateNotice() {
         
         // Notification Telegram
         await telegramService.sendMessage(
-          `🧪 **SIMULATION NOTICE** 🧪\n\n**Token:** \`${processed.base}\`\n**Title:** ${processed.title}\n**Source:** ${processed.source}`
+          `🧪 **SIMULATION NOTICE** 🧪\n\n**Token:** \`${processed.base}\`\n**Source:** ${processed.source}`
         );
         console.log('✅ Notification Telegram envoyée');
       }

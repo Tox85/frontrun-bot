@@ -20,6 +20,13 @@ export declare class SingletonGuard {
     private startHeartbeat;
     private stopHeartbeat;
     releaseLeadership(): Promise<void>;
+    /**
+     * Force le leadership (pour les tests T0 Ready)
+     */
+    forceLeadership(): void;
+    /**
+     * Vérifie si cette instance est le leader
+     */
     isInstanceLeader(): boolean;
     getInstanceId(): string;
     getLeaderInfo(): {

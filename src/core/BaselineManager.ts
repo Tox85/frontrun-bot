@@ -19,6 +19,8 @@ export interface BaselineManagerStats {
   lastUpdated: string;
   source: string;
   sanity: boolean;
+  baselineBuiltAt: string | null;
+  graceMinutes: number;
 }
 
 export class BaselineManager {
@@ -33,6 +35,9 @@ export class BaselineManager {
   private lastBaselineFetchMs: number | null = null;
   private errors999Last5m: number = 0;
   private errorCounters: Map<number, number> = new Map();
+  private baselineBuiltAt: Date | null = null;
+  private refreshInterval: NodeJS.Timeout | null = null;
+  private graceMinutes: number = 10; // Fenêtre de grâce par défaut
 
   constructor(db: Database) {
     this.db = db;
@@ -81,6 +86,9 @@ export class BaselineManager {
         }
       }
       
+      // Démarrer le refresh périodique
+      this.startPeriodicRefresh();
+      
       this.isInitialized = true;
       
     } catch (error) {
@@ -117,7 +125,10 @@ export class BaselineManager {
       
       await this.storeBaselineKR(tokens);
       
-      console.log(`📊 Baseline KR stockée: ${tokens.length} tokens (BOOT ONLY)`);
+      // Enregistrer le timestamp de construction
+      this.baselineBuiltAt = new Date();
+      
+      console.log(`📊 Baseline KR stockée: ${tokens.length} tokens (BOOT ONLY) à ${this.baselineBuiltAt.toISOString()}`);
       
       // Si on était en mode dégradé, passer à READY et réactiver T0
       if (this.state === 'DEGRADED' || this.state === 'CACHED') {
@@ -240,6 +251,45 @@ export class BaselineManager {
     return !!result;
   }
 
+  /**
+   * Vérifie si un token est dans la baseline avec support de la fenêtre de grâce
+   */
+  async isTokenInBaselineWithGrace(base: string, noticeTime?: Date): Promise<{
+    inBaseline: boolean;
+    withinGrace: boolean;
+    reason: string;
+  }> {
+    const inBaseline = await this.isTokenInBaseline(base);
+    
+    if (!inBaseline) {
+      return {
+        inBaseline: false,
+        withinGrace: false,
+        reason: 'baseline=unknown → new listing'
+      };
+    }
+    
+    // Vérifier la fenêtre de grâce
+    if (this.baselineBuiltAt && noticeTime) {
+      const graceWindowMs = this.graceMinutes * 60 * 1000;
+      const timeDiff = noticeTime.getTime() - this.baselineBuiltAt.getTime();
+      
+      if (timeDiff <= graceWindowMs) {
+        return {
+          inBaseline: true,
+          withinGrace: true,
+          reason: 'baseline=known but within grace → allow'
+        };
+      }
+    }
+    
+    return {
+      inBaseline: true,
+      withinGrace: false,
+      reason: 'baseline=known and outside grace → block'
+    };
+  }
+
   async isTokenNew(base: string): Promise<boolean> {
     return !(await this.isTokenInBaseline(base));
   }
@@ -282,7 +332,9 @@ export class BaselineManager {
       activeTokens: stats.total,
       lastUpdated: stats.lastUpdated,
       source: 'bithumb.rest',
-      sanity: stats.sanity
+      sanity: stats.sanity,
+      baselineBuiltAt: this.baselineBuiltAt?.toISOString() || null,
+      graceMinutes: this.graceMinutes
     };
   }
 
@@ -339,6 +391,50 @@ export class BaselineManager {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
+    
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+  }
+
+  /**
+   * Démarre le refresh périodique de la baseline
+   */
+  private startPeriodicRefresh(): void {
+    const refreshMinutes = 5; // Configurable via env
+    
+    this.refreshInterval = setInterval(async () => {
+      try {
+        console.log(`🔄 Refresh périodique de la baseline KR (${refreshMinutes} minutes)...`);
+        await this.fetchAndStoreBaseline();
+        console.log('✅ Baseline KR rafraîchie avec succès');
+      } catch (error) {
+        console.warn('⚠️ Échec du refresh périodique de la baseline:', error);
+      }
+    }, refreshMinutes * 60 * 1000);
+    
+    console.log(`🔄 Refresh périodique de la baseline activé (${refreshMinutes} minutes)`);
+  }
+
+  /**
+   * Met à jour l'intervalle de refresh
+   */
+  updateRefreshInterval(minutes: number): void {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+    
+    this.startPeriodicRefresh();
+    console.log(`⚙️ Intervalle de refresh mis à jour: ${minutes} minutes`);
+  }
+
+  /**
+   * Met à jour la fenêtre de grâce
+   */
+  updateGraceWindow(minutes: number): void {
+    this.graceMinutes = minutes;
+    console.log(`⚙️ Fenêtre de grâce mise à jour: ${minutes} minutes`);
   }
 
   getStatus(): {

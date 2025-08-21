@@ -13,6 +13,8 @@ export interface BaselineManagerStats {
     lastUpdated: string;
     source: string;
     sanity: boolean;
+    baselineBuiltAt: string | null;
+    graceMinutes: number;
 }
 export declare class BaselineManager {
     private db;
@@ -26,6 +28,9 @@ export declare class BaselineManager {
     private lastBaselineFetchMs;
     private errors999Last5m;
     private errorCounters;
+    private baselineBuiltAt;
+    private refreshInterval;
+    private graceMinutes;
     constructor(db: Database);
     initialize(): Promise<void>;
     private fetchAndStoreBaseline;
@@ -35,6 +40,14 @@ export declare class BaselineManager {
     private storeBaselineKR;
     private parseBaselineResponse;
     isTokenInBaseline(base: string): Promise<boolean>;
+    /**
+     * Vérifie si un token est dans la baseline avec support de la fenêtre de grâce
+     */
+    isTokenInBaselineWithGrace(base: string, noticeTime?: Date): Promise<{
+        inBaseline: boolean;
+        withinGrace: boolean;
+        reason: string;
+    }>;
     isTokenNew(base: string): Promise<boolean>;
     getBaselineKRStats(): Promise<{
         total: number;
@@ -54,6 +67,18 @@ export declare class BaselineManager {
         errors999Last5m: number;
     }>;
     stop(): Promise<void>;
+    /**
+     * Démarre le refresh périodique de la baseline
+     */
+    private startPeriodicRefresh;
+    /**
+     * Met à jour l'intervalle de refresh
+     */
+    updateRefreshInterval(minutes: number): void;
+    /**
+     * Met à jour la fenêtre de grâce
+     */
+    updateGraceWindow(minutes: number): void;
     getStatus(): {
         isInitialized: boolean;
         baselineUrl: string;

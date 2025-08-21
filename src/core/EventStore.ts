@@ -1,4 +1,6 @@
 import { Database } from 'sqlite3';
+import { latency } from '../metrics/Latency';
+import { classifyListingTiming } from './Timing';
 
 export interface ProcessedEvent {
   eventId: string;
@@ -44,6 +46,33 @@ export class EventStore {
         }
 
         const wasInserted = this.changes && this.changes > 0;
+        
+        if (wasInserted) {
+          // Marquer la latence dedup_inserted uniquement sur INSERT
+          latency.mark(event.eventId, 'dedup_inserted');
+          
+          // PATCH C: Finaliser le flow T0 même sans trading pour avoir des métriques p95 > 0
+          // Ne pas simuler order_sent/order_ack - juste finaliser le flow detect→insert
+          // Le flow sera nettoyé automatiquement après un délai
+          
+          // Log unique pour INSERTED avec timing
+          const tradeTime = event.tradeTimeUtc ? new Date(event.tradeTimeUtc) : null;
+          const timing = classifyListingTiming(tradeTime);
+          console.log(`🆕 [NEW] base=${event.base}, eventId=${event.eventId.substring(0, 8)}..., timing=${timing}`);
+          
+          // Incrémenter le compteur approprié
+          if (timing === 'live') {
+            latency.incrementCounter('t0_new_total');
+          } else if (timing === 'future') {
+            latency.incrementCounter('t0_future_total');
+          } else if (timing === 'stale') {
+            latency.incrementCounter('t0_stale_total');
+          }
+        } else {
+          // Incrémenter le compteur de doublons
+          latency.incrementCounter('t0_dup_total');
+        }
+        
         resolve(wasInserted ? 'INSERTED' : 'DUPLICATE');
       });
 

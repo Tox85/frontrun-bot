@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TradeExecutor = void 0;
+const Latency_1 = require("../metrics/Latency");
 class TradeExecutor {
     hyperliquid;
     exitScheduler;
@@ -11,6 +12,9 @@ class TradeExecutor {
     config;
     activeTrades = new Map();
     cooldowns = new Map();
+    // Métriques pour le self-test
+    tradesOpenedCount = 0;
+    exitPendingCount = 0;
     constructor(hyperliquid, exitScheduler, positionSizer, baselineManager, perpCatalog, telegramService, config) {
         this.hyperliquid = hyperliquid;
         this.exitScheduler = exitScheduler;
@@ -26,16 +30,26 @@ class TradeExecutor {
     async executeOpportunity(opportunity) {
         try {
             console.log(`🎯 Exécution de l'opportunité: ${opportunity.token} (${opportunity.source})`);
-            // 1. Vérifier le cooldown
-            if (this.isInCooldown(opportunity.token)) {
+            console.log(`🧪 DEBUG: bypassBaseline: ${opportunity.bypassBaseline}, bypassCooldown: ${opportunity.bypassCooldown}, dryRun: ${opportunity.dryRun}`);
+            // Créer un eventId pour le tracking de latence
+            const eventId = `trade_${opportunity.token}_${Date.now()}`;
+            // PATCH E: beginIfAbsent pour éviter les logs "already exists"
+            Latency_1.latency.beginIfAbsent(eventId);
+            // 1. Vérifier le cooldown (sauf si bypassCooldown=true)
+            if (!opportunity.bypassCooldown && this.isInCooldown(opportunity.token)) {
                 console.log(`⏰ ${opportunity.token} en cooldown, trade ignoré`);
                 return null;
             }
-            // 2. Vérifier que le token n'est pas déjà dans la baseline
-            const isNew = await this.baselineManager.isTokenNew(opportunity.token);
-            if (!isNew) {
-                console.log(`📚 ${opportunity.token} déjà dans la baseline, trade ignoré`);
-                return null;
+            // 2. Vérifier que le token n'est pas déjà dans la baseline (sauf si bypassBaseline=true)
+            if (!opportunity.bypassBaseline) {
+                const isNew = await this.baselineManager.isTokenNew(opportunity.token);
+                if (!isNew) {
+                    console.log(`📚 ${opportunity.token} déjà dans la baseline, trade ignoré`);
+                    return null;
+                }
+            }
+            else {
+                console.log(`🧪 DEBUG: Bypass baseline activé pour ${opportunity.token}`);
             }
             // 3. Vérifier la disponibilité sur Hyperliquid
             const isAvailable = await this.hyperliquid.isSymbolTradable(opportunity.token);
@@ -56,8 +70,11 @@ class TradeExecutor {
                 console.log(`❌ Taille de position invalide pour ${opportunity.token}`);
                 return null;
             }
-            // 6. Exécuter le trade
-            const tradeResult = await this.executeLongPosition(opportunity.token, positionSize.notional, currentPrice, positionSize.leverage);
+            // 6. Marquer order_sent et exécuter le trade
+            Latency_1.latency.mark(eventId, 'order_sent');
+            const tradeResult = await this.executeLongPosition(opportunity.token, positionSize.notional, currentPrice, positionSize.leverage, opportunity.dryRun);
+            // Marquer order_ack (succès ou échec)
+            Latency_1.latency.mark(eventId, 'order_ack');
             if (tradeResult.success) {
                 // 7. Programmer la sortie
                 await this.scheduleExit(opportunity.token, tradeResult.positionId, positionSize);
@@ -87,10 +104,13 @@ class TradeExecutor {
     /**
      * Exécute une position longue sur Hyperliquid
      */
-    async executeLongPosition(token, amount, price, leverage) {
+    async executeLongPosition(token, amount, price, leverage, dryRun) {
         try {
-            if (this.config.dryRun) {
-                console.log(`🧪 DRY_RUN: Position longue simulée pour ${token}`);
+            // Mode self-test ou dry-run: simulation complète sans réseau
+            const shouldDryRun = dryRun || process.env.SELFTEST_MODE === 'true' && process.env.TRADING_DRY_RUN_ON_SELFTEST === 'true';
+            if (shouldDryRun) {
+                console.log(`🧪 DRY-RUN: Position longue simulée pour ${token}`);
+                // Simuler order_sent puis ack (succès) sans requête réseau
                 const mockResult = {
                     success: true,
                     token,
@@ -101,6 +121,13 @@ class TradeExecutor {
                     positionId: `mock_${Date.now()}`,
                     timestamp: new Date().toISOString()
                 };
+                // Incrémenter trades_opened pour le self-test
+                this.incrementTradesOpened();
+                // Programmer un petit exit de test (+5s) marqué EXECUTED localement
+                setTimeout(() => {
+                    this.incrementExitPending();
+                    console.log(`🧪 SELFTEST_MODE: Exit planifié pour ${token} (simulé)`);
+                }, 5000);
                 return mockResult;
             }
             console.log(`💰 Exécution position longue: ${token} - ${amount} @ ${price} (levier: ${leverage})`);
@@ -212,6 +239,24 @@ class TradeExecutor {
         // Sauvegarder les cooldowns
         // TODO: Persister les cooldowns en base
         console.log('✅ TradeExecutor arrêté');
+    }
+    /**
+     * Méthodes pour le self-test
+     */
+    incrementTradesOpened() {
+        this.tradesOpenedCount++;
+    }
+    incrementExitPending() {
+        this.exitPendingCount++;
+    }
+    /**
+     * Obtient les métriques pour le self-test
+     */
+    getSelfTestMetrics() {
+        return {
+            tradesOpened: this.tradesOpenedCount,
+            exitPending: this.exitPendingCount
+        };
     }
 }
 exports.TradeExecutor = TradeExecutor;
